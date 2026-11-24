@@ -12,7 +12,7 @@
 ## Etapas
 | Etapa | Descrição | Status |
 |---|---|---|
-| E00 | Ambiente e esqueleto | pendente |
+| E00 | Ambiente e esqueleto | concluída |
 | E01 | Gerente de Arquivos | pendente |
 | E02 | Gerente de Buffer Pool (LRU/MRU/FIFO/Clock) | pendente |
 | E03 | Registros, slotted page, catálogo | pendente |
@@ -36,3 +36,11 @@
 
 ## Notas de handoff
 <!-- Formato: ### Exx — AAAA-MM-DD  (≤ 8 linhas: feito, decisões, pendências, próximo passo se WIP) -->
+
+### E00 — 2026-11-24
+- Feito: .gitignore, venv + requirements.txt (versões fixadas), árvore src/{common,storage,access,executor,bench}, tests/, config/base.yaml (decisões fixadas + perfis), pytest.ini (marker stress, pythonpath=.).
+- `src/common/config.py`: `load_config(perfil, overrides)` → `Config` frozen (Mappings read-only), valida soma das áreas, políticas e block_size. `erros.py`, `tipos.py` (RID, PageId).
+- `tests/test_arquitetura.py`: AST, regra de camadas + proíbe `src.storage.file_manager` fora de storage.
+- Docs: INTERFACES, DECISOES (D01–D23), code_review (1 defeito no analisador), README. Hook de prompts confirmado (prompts.md recebeu esta sessão).
+- Decisão: PDFs de material/ continuam versionados (já estavam no commit init) — usuário pode pedir para remover.
+- 20 testes verdes. Pendência: preencher dados do usuário (nomes/DRE) no topo deste arquivo.

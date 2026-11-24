@@ -1,0 +1,56 @@
+# Configuração-base da bancada (valores de "Decisões fixadas" em docs/PLANO_EXECUCAO.md).
+# Justificativas em docs/DECISOES.md. O código lê daqui — nada de números mágicos.
+
+disco:
+  block_size: 4096            # bytes; variação opcional 2048/8192
+  extent_blocks: 8            # alocação por extents de 8 blocos
+  data_dir: data              # 1 arquivo do SO por estrutura em data/<perfil>/
+  header_block: 0             # bloco 0 = cabeçalho do arquivo
+  free_list: encadeada        # ponteiro da cabeça no cabeçalho
+  seek_model: braco_global    # (fid,b) sequencial se último acesso físico foi (fid,b-1)
+
+buffer:
+  total_pages: 256            # 1 página = 1 bloco
+  areas:                      # áreas fixas; soma = total_pages
+    catalogo: 8
+    indice: 64
+    dados: 120
+    trabalho: 64              # M = memória de trabalho de junção/ordenação
+  policy: LRU                 # LRU | MRU | FIFO | CLOCK (por área)
+  policies: {}                # sobrescrita por área, ex.: {dados: MRU}
+  toss_immediate: false       # opcional por chamada (toss=True)
+  prefetch: 0                 # k blocos; 0 = desligado
+
+hash:
+  fill_factor: 0.8            # nB = ceil(nr / (fr * 0.8))
+  funcao: fnv1a64
+  bucket_blocks: 1            # bucket = 1 bloco, overflow encadeado
+
+bplus:
+  node_blocks: 1              # nó = 1 bloco; fan-out calculado do bloco
+  bulk_load: true             # bulk loading na carga
+
+perfis:
+  teste:
+    Curso: 10
+    Disciplina: 100
+    Turma: 300
+    Aluno: 1000
+    Detalhes_do_Aluno: 1000
+    Inscricao_Aluno_Turma: 5000
+  medio:
+    Curso: 30
+    Disciplina: 500
+    Turma: 2000
+    Aluno: 5000
+    Detalhes_do_Aluno: 5000
+    Inscricao_Aluno_Turma: 25000
+  completo:
+    Curso: 50
+    Disciplina: 2000
+    Turma: 8000
+    Aluno: 20000
+    Detalhes_do_Aluno: 20000
+    Inscricao_Aluno_Turma: 100000
+
+seed: 42
