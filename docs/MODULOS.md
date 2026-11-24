@@ -33,15 +33,15 @@ Fase 2      M8 Índices B+ sec. + registry + loader │ M9 Runner + experimentos
 Fase 3      M12 Execução+gráficos │ M13 Rel. técnico │ M14 Rel. IA + POST_MORTEM │ M15 Slides
 ```
 
-## Distribuição sugerida (troque os nomes em `PROGRESS.md`)
+## Distribuição (nomes e DREs em `PROGRESS.md`)
 
 | Pessoa | Fase 0 | Fase 1 | Fase 2 | Fase 3 |
 |---|---|---|---|---|
-| **P1** (líder/integrador) | **M0** | M1 Storage → M6 Modelo de custo | Integra merges; RC revisa M2 | M13 Relatório técnico (cap. arquitetura/decisões) |
-| **P2** | — | M2 Registros+Heap → M5J Junções | M11 Estresse; RC revisa M3 | M13 Relatório técnico (resultados/conclusão) |
-| **P3** | — | M3 Árvore B+ | M8 Índices secundários + loader; RC revisa M4 | M14 Relatório de IA + POST_MORTEM |
-| **P4** | — | M4 Hash → M7 Datagen | M9 Runner + experimentos; RC revisa M5/M5J | M12 Execução completa + gráficos |
-| **P5** | — | M5 Seleção + Sort + NL | M10 Integração; RC revisa M1 | M15 Slides + checklist final |
+| **P1** Kauã (líder/integrador) | **M0** | M1 Storage → M6 Modelo de custo | Integra merges; RC revisa M2 | M13 Relatório técnico (cap. arquitetura/decisões) |
+| **P2** Emanuel | — | M2 Registros+Heap → M5J Junções | M11 Estresse; RC revisa M3 | M13 Relatório técnico (resultados/conclusão) |
+| **P3** Davi | — | M3 Árvore B+ | M8 Índices secundários + loader; RC revisa M4 | M14 Relatório de IA + POST_MORTEM |
+| **P4** Rodrigo | — | M4 Hash → M7 Datagen | M9 Runner + experimentos; RC revisa M5/M5J | M12 Execução completa + gráficos |
+| **P5** Ramon | — | M5 Seleção + Sort + NL | M10 Integração; RC revisa M1 | M15 Slides + checklist final |
 
 Carga equilibrada: M1 e M4 são menores, por isso P1 e P4 emendam um segundo módulo da Fase 1.
 M5J começa com os fakes, mas só fecha depois que M5 (sort) estiver em `main`.

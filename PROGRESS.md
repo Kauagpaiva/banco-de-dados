@@ -4,14 +4,16 @@
 > para não gerar conflito de merge). Este quadro é atualizado pelo líder ao integrar.
 > Divisão e regras: `docs/MODULOS.md` · Fluxo de Git: `docs/GIT_FLUXO.md`.
 
-## Integrantes (nome completo — DRE) — preencher
+## Integrantes (nome completo — DRE)
 | Papel | Nome completo | DRE | Usuário GitHub |
 |---|---|---|---|
-| P1 (líder) | | | |
-| P2 | | | |
-| P3 | | | |
-| P4 | | | |
-| P5 | | | |
+| P1 (líder) | Kauã Gomes de Paiva da Costa | 122070496 | Kauagpaiva |
+| P2 | Emanuel Cardoso | 122033151 | |
+| P3 | Davi Richards Nascimento | 119022078 | |
+| P4 | Rodrigo Melo Dias | 119048189 | |
+| P5 | Ramon Silva Ramirez | 111205591 | |
+
+> Papéis P2–P5 podem ser trocados entre os integrantes; basta ajustar esta tabela.
 
 - Repositório: https://github.com/Kauagpaiva/banco-de-dados
 - Data da apresentação:

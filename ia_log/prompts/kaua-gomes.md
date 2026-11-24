@@ -18,3 +18,16 @@ rodei /proxima-etapa uma vez. Tem como separar o projeto em modulos que possam s
 
 ---
 
+## 2026-11-24 20:21:20 · branch main · sessão 628497c2
+
+nÃ£o entendi como utilizaremos. A aplicaÃ§Ã£o estÃ¡ dividida em quantos mÃ³dulos? todos eles podem ser desenvolvidos paralelamente ou algum modulo depende de outro? quero comentar no grupo quais modulos estÃ£o disponiveis para desenvolvimento e qual comando cada um pode usar (se utilizar claude) (ou qual instruÃ§Ã£o ele deve dar para a IA dele caso ele utilize outra IA)
+
+---
+
+## 2026-11-24 20:23:00 · branch main · sessão 8ec572db
+
+<ide_opened_file>The user opened the file c:\Users\kauag\Documents\Estudos faculdade\2026.2\CDB\projeto 2\ia_log\prompts\kaua-gomes.md in the IDE. This may or may not be related to the current task.</ide_opened_file>
+/modulo M0
+
+---
+
