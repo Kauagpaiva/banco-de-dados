@@ -23,3 +23,15 @@ class RecordError(BancadaError):
 
 class MemoryBudgetError(BancadaError):
     """Operador do executor tentou exceder as M páginas de trabalho."""
+
+
+class CorruptedPageError(RecordError):
+    """Offset/tamanho lido da página aponta para fora do bloco (página corrompida)."""
+
+
+class OperacaoNaoSuportada(BancadaError):
+    """A organização/índice não oferece a operação pedida (ex.: find_ordered em Heap)."""
+
+
+class ChaveDuplicadaError(BancadaError):
+    """Inserção de chave repetida em estrutura UNIQUE."""

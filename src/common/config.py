@@ -83,12 +83,37 @@ def _congelar(d: Any) -> Any:
     return d
 
 
+def _merge_modulo(base: dict, extra: Mapping, origem: str, prefixo: str = "") -> None:
+    """Acrescenta chaves novas de um `config/modulos/Mx.yaml`; redefinir chave existente é erro."""
+    for k, v in extra.items():
+        caminho = f"{prefixo}{k}"
+        if k not in base:
+            base[k] = copy.deepcopy(v)
+        elif isinstance(v, Mapping) and isinstance(base[k], dict):
+            _merge_modulo(base[k], v, origem, caminho + ".")
+        else:
+            raise ConfigError(f"{origem} redefine a chave já existente {caminho!r}")
+
+
+def _carregar_modulos(dados: dict, pasta: Path) -> None:
+    if not pasta.is_dir():
+        return
+    for arq in sorted(pasta.glob("*.yaml")):
+        with open(arq, encoding="utf-8") as f:
+            extra = yaml.safe_load(f) or {}
+        if not isinstance(extra, Mapping):
+            raise ConfigError(f"{arq.name}: esperado um mapeamento YAML")
+        _merge_modulo(dados, extra, arq.name)
+
+
 def load_config(perfil: str = "teste", overrides: Mapping[str, Any] | None = None,
                 caminho: Path | str | None = None) -> Config:
-    """Lê o YAML base, aplica overrides e valida. Devolve Config imutável."""
+    """Lê o YAML base, faz merge de `config/modulos/*.yaml` (só chaves novas), aplica
+    overrides e valida. Devolve Config imutável. Os módulos ficam em `<pasta do base>/modulos/`."""
     caminho = Path(caminho) if caminho else CONFIG_PADRAO
     with open(caminho, encoding="utf-8") as f:
         dados = yaml.safe_load(f) or {}
+    _carregar_modulos(dados, caminho.parent / "modulos")
     if overrides:
         _aplicar_overrides(dados, overrides)
 
