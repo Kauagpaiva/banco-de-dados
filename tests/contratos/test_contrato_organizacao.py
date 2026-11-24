@@ -50,9 +50,18 @@ def org(request, bm, page_impl, codec):
 
 @pytest.fixture
 def cheia(org):
+    """Tabela com N registros. Não guarda RIDs: na B+ primária eles mudam em split/fusão
+    (Silberschatz 14.4.2) — os testes obtêm o RID atual com `find`."""
     recs = list(registros_fake(TURMA, N, seed=3))
-    rids = {r["numero"]: org.insert(r) for r in recs}
-    return org, recs, rids
+    for r in recs:
+        assert isinstance(org.insert(r), RID)
+    return org, recs, None
+
+
+def _rid(org, numero):
+    rid = org.find("numero", numero)
+    assert rid is not None
+    return rid
 
 
 def test_scan_devolve_todos(cheia):
@@ -63,10 +72,9 @@ def test_scan_devolve_todos(cheia):
 
 
 def test_read_por_rid(cheia):
-    org, recs, rids = cheia
+    org, recs, _ = cheia
     for r in recs[::17]:
-        assert isinstance(rids[r["numero"]], RID)
-        assert org.read(rids[r["numero"]]) == r
+        assert org.read(_rid(org, r["numero"])) == r
 
 
 def test_find_e_find_next(cheia):
@@ -107,13 +115,13 @@ def test_find_ordered(cheia):
 
 
 def test_delete_update(cheia):
-    org, recs, rids = cheia
+    org, recs, _ = cheia
     for r in recs[:50]:
-        org.delete(rids[r["numero"]])
+        org.delete(_rid(org, r["numero"]))
     assert org.num_registros() == N - 50
     assert org.find("numero", recs[0]["numero"]) is None
     alvo = dict(recs[60], sala="X-999")
-    novo = org.update(rids[alvo["numero"]], alvo)
+    novo = org.update(_rid(org, alvo["numero"]), alvo)
     assert org.read(novo) == alvo
     assert sorted((r["numero"] for _, r in org.scan())) == [r["numero"] for r in recs[50:]]
 
