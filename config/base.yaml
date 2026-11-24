@@ -1,5 +1,5 @@
 # Configuração-base da bancada (valores de "Decisões fixadas" em docs/PLANO_EXECUCAO.md).
-# Justificativas em docs/DECISOES.md. O código lê daqui — nada de números mágicos.
+# Justificativas em docs/decisoes/. O código lê daqui — nada de números mágicos.
 
 disco:
   block_size: 4096            # bytes; variação opcional 2048/8192

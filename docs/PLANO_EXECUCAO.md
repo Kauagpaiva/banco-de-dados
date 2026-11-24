@@ -9,7 +9,7 @@
 
 ## Decisões fixadas (valem para todas as etapas)
 
-Valores-base. Ficam em `config/base.yaml`; código lê de lá. Justificativas em `docs/DECISOES.md`.
+Valores-base. Ficam em `config/base.yaml`; código lê de lá. Justificativas em `docs/decisoes/M0-base.md` (+ `docs/decisoes/Mx.md` por módulo).
 
 | Item | Valor-base | Observação |
 |---|---|---|
@@ -47,8 +47,9 @@ src/executor/  memory.py, scan.py, selection.py, sort.py, join_bnl.py, join_inl.
 src/bench/     datagen.py, loader.py, cost_model.py, runner.py, plots.py, sqlite_ref.py
 tests/         test_<modulo>.py, test_arquitetura.py, stress/
 tools/         log_prompt.py
-ia_log/        prompts.md, code_review.md, stress_raw_vs_fix.md
-docs/          PLANO_EXECUCAO.md, INTERFACES.md, DECISOES.md, REFERENCIA_LIVRO.md
+ia_log/        prompts/<autor>.md, code_review/<Mx>.md, stress_raw_vs_fix.md
+docs/          PLANO_EXECUCAO.md, MODULOS.md, GIT_FLUXO.md, INTERFACES.md, decisoes/<Mx>.md, REFERENCIA_LIVRO.md
+progress/      <Mx>.md (status por módulo)
 results/       *.csv, plots/
 relatorio/     relatorio_tecnico.md, relatorio_ia.md, slides.md (+ PDFs)
 data/          (gitignored)
@@ -74,10 +75,56 @@ data/          (gitignored)
 3. Criar a árvore de diretórios acima com `__init__.py`; `pytest.ini` (`testpaths = tests`, marker `stress`, `addopts = -m "not stress"`).
 4. `config/base.yaml` com todos os valores da tabela "Decisões fixadas" + perfis; `src/common/config.py` (`load_config(perfil="teste", overrides: dict|None) -> Config` dataclass imutável).
 5. `tests/test_arquitetura.py`: percorre `src/` com `ast`, falha se uma camada importar outra que não a imediatamente inferior (common é livre).
-6. `docs/INTERFACES.md`, `docs/DECISOES.md` (com as decisões fixadas já justificadas, 1–2 linhas cada, citando alternativa preterida), `ia_log/code_review.md` (cabeçalho), `README.md` (como rodar).
-7. Verificar o hook de prompts: `tools/log_prompt.py` já existe; confirmar que `ia_log/prompts.md` recebeu o prompt desta sessão.
+6. *(feito na E00; hoje em `docs/decisoes/M0-base.md` e `ia_log/code_review/M0.md`)* `docs/INTERFACES.md`, `docs/DECISOES.md` (com as decisões fixadas já justificadas, 1–2 linhas cada, citando alternativa preterida), `ia_log/code_review.md` (cabeçalho), `README.md` (como rodar).
+7. Verificar o hook de prompts: `tools/log_prompt.py` já existe; confirmar que `ia_log/prompts/<autor>.md` recebeu o prompt desta sessão.
 **Aceite:** `.venv/Scripts/python -m pytest -q` verde; `load_config()` retorna block_size 4096; commit `feat(E00)`.
 *(E00 é infraestrutura: pode pular o passo ia-raw.)*
+
+---
+
+## E00b — Contratos, stubs e fakes (módulo M0 — destrava o trabalho em paralelo)
+**Objetivo:** congelar a API de todas as camadas para que M1–M7 possam ser desenvolvidos ao
+mesmo tempo, cada um testando contra fakes das camadas que ainda não existem.
+Leia `docs/MODULOS.md` (seções "Ideia central" e "Regras") e as interfaces das etapas E01–E14 deste plano.
+
+**Fazer:**
+1. **Tipos compartilhados** em `src/common/tipos.py`: `Predicado(campo, op, valor)` com
+   `op ∈ {'=','<','<=','>','>='}`, `CondJuncao(campo_r, campo_s)`, `Metricas` (dict tipado com as
+   chaves de `BufferManager.stats()` + `tuplas_saida`), `CAMINHOS_SELECAO` (A1_linear, A1_chave,
+   A2…A6, HASH_PRIM, HASH_SEC).
+2. **Contratos (ABC/Protocol + dataclasses), sem implementação:**
+   - `src/storage/contracts.py`: `Frame`, `FileManagerAPI`, `BufferManagerAPI` (exatamente a interface de E01/E02), `CHAVES_STATS`.
+   - `src/access/contracts.py`: `Campo`, `Esquema`, `RecordCodecAPI`, `SlottedPageAPI`, `CatalogAPI`
+     (inclui `InfoTabela` com nr, br, fr, tam_registro, V(A), altura de índices — o formato que o
+     `cost_model` consome), `FileOrganization` (interface da E04), `SecondaryIndex`
+     (`insert(chave, ref)`, `delete(chave, ref)`, `search_eq(chave) -> Iterator[ref]`,
+     `search_range(lo, hi, incl_lo, incl_hi) -> Iterator[ref]`, `altura()`, `num_blocks()`),
+     `TempFile` (`append(rec)`, `blocks() -> Iterator[bno]`, `records_in_block(bno)`, `scan()`,
+     `num_blocks()`, `close()`, `delete()`), `StorageContext` (dá ao executor o que ele precisa sem
+     importar `storage`: `buffer_stats()`, `reset_stats()`, `drop_all()`, `work_capacity() -> M`,
+     `pin_work_page()/unpin_work_page()`, `temp_file(esquema) -> TempFile`, `catalog`).
+   - `src/access/esquemas.py`: os 6 esquemas da base universitária (E09) como `Esquema` — compartilhado por M2, M7, M8.
+   - `src/executor/contracts.py`: assinaturas de `select`, `external_sort`, `block_nested_loop`,
+     `indexed_nested_loop`, `sort_merge_join`, `hash_join` (todas retornam `(iterador, Metricas)`), e `MemoryBudget`.
+3. **Stubs** de todos os arquivos de implementação listados em `docs/MODULOS.md` (classes/funções com a
+   assinatura do contrato, docstring citando a seção do livro, corpo `raise NotImplementedError`).
+4. **Fakes** em `tests/fakes/` (simples, corretos, **contam I/O pelo mesmo contrato**):
+   `FakeFileManager` (blocos em dict) + `FakeBufferManager` (LRU simples, pin/unpin/dirty, stats),
+   `FakeCodec` (JSON com limite de tamanho), `FakeSlottedPage` (lista serializada no bytearray com
+   checagem de capacidade), `FakeCatalog`, `FakeTable` (FileOrganization heap sobre o buffer),
+   `FakeIndex` (SecondaryIndex em dict, contando 1 acesso de página por busca), `FakeTempFile`,
+   `FakeStorageContext`.
+5. **`tests/conftest.py`:** fixtures `cfg`, `bm`, `ctx`, `codec`, `page_impl`, `tabela(nome, n)` —
+   cada uma tenta instanciar a implementação real e cai no fake se ela lançar `NotImplementedError`;
+   fixture autouse que chama `assert_no_pins()` no teardown; opção `--so-fakes` para forçar fakes.
+6. **Testes de contrato** em `tests/contratos/`: testes parametrizados pela implementação
+   (fake e real) para buffer, codec, slotted page, FileOrganization, SecondaryIndex, TempFile.
+   O real é marcado `xfail(strict=False)` enquanto for stub.
+7. `src/common/config.py`: também carrega e faz merge de `config/modulos/*.yaml`.
+8. `docs/INTERFACES.md` reescrito a partir dos contratos (fonte única de verdade).
+9. CI: conferir que `.github/workflows/testes.yml` passa.
+**Aceite:** suíte verde (stubs como xfail); `tests/test_arquitetura.py` verde; todos os fakes passam
+nos testes de contrato; merge em `main` **antes** de qualquer módulo da Fase 1 começar.
 
 ---
 
@@ -187,7 +234,9 @@ reorganize() ; num_blocks() -> int ; ocupacao() -> dict       # blocos de dados/
 
 ## E07 — Hash estático externo (UNIQUE e NOT UNIQUE)
 **Livro:** 14.5 (REFERENCIA_LIVRO §5).
-**Arquivos:** `src/access/hashfile.py`, `tests/test_hashfile.py`.
+**Arquivos:** `src/access/hashfile.py`, `hash_index.py`, `tests/test_hashfile.py`, `test_hash_index.py`.
+**Inclui (movido da E08 no modo paralelo):** `HashIndex` secundário UNIQUE (chave → RID), que
+implementa `SecondaryIndex` de `src/access/contracts.py`, reaproveitando buckets/overflow do hashfile.
 **Fazer:** nB buckets primários contíguos (blocos 1..nB) definidos na criação; bucket = slotted page + ponteiro de overflow no fim; overflow encadeado; função FNV-1a 64 (alternativas comparadas no teste de dispersão: `hash()` do Python NÃO — não é determinístico entre execuções); `find`, `find_next` (percorre cadeia), `insert`, `delete` (procura na cadeia toda; libera bloco de overflow vazio), `estatisticas()` → buckets, overflow, cadeia máx/média, fator de carga, coeficiente de variação da ocupação (skew).
 **Testes:** função degenerada (tudo no bucket 0) → busca e remoção corretas em cadeia longa; dispersão de CPF/DRE gerados (qui-quadrado simples ou CV < limiar); NOT UNIQUE com duplicatas; `scan` vê tudo.
 **Aceite:** testes verdes.
@@ -198,7 +247,8 @@ reorganize() ; num_blocks() -> int ; ocupacao() -> dict       # blocos de dados/
 **Livro:** 14.2, 14.4.2 (REFERENCIA_LIVRO §4–5).
 **Arquivos:** `src/access/secondary.py`, `access_methods.py`, `tests/test_secondary.py`.
 **Fazer:**
-- `HashIndex` secundário UNIQUE (chave → RID) — para Heap.
+- `HashIndex` secundário UNIQUE (chave → RID) — para Heap. **Já entregue pelo M4 (E07)**; aqui só é registrado no registry.
+- Arquivo do índice B+ secundário: `src/access/secondary_bplus.py` (módulo M8).
 - `BPlusIndex` secundário NOT UNIQUE **sem repetição de chave nas folhas**: entrada de folha = (chave, ponteiro para cadeia de blocos de RIDs) — para Heap, B+ e Hash.
 - Índice secundário *clustering* (para B+ e Hash, campo NOT UNIQUE): definir no DECISOES como interpretar (sugestão: B+ secundário cujas listas de RIDs estão ordenadas pelo endereço físico, de modo que o acesso aos dados é em ordem de bloco).
 - Para organização B+ (registros se movem em split): índice secundário guarda **chave primária**, não RID (14.4.2) — documentar o custo extra.
@@ -212,6 +262,8 @@ reorganize() ; num_blocks() -> int ; ocupacao() -> dict       # blocos de dados/
 
 ## E09 — Gerador da base, carga e referência SQLite (Camada 1 — dados)
 **Arquivos:** `src/bench/datagen.py`, `loader.py`, `sqlite_ref.py`, `tests/test_datagen.py`.
+**Modo paralelo:** M7 faz gerador + SQLite (registros como `dict`, esquemas de `src/access/esquemas.py`);
+o **loader** (criar tabela × AccessMethod e carregar) fica com o M8. A calibração dos volumes é feita pelo M9.
 **Esquema** (enunciado §6.4; documentar esquema físico em DECISOES):
 Aluno(CPF, **DRE**, nome, data_nasc, sexo, endereco, emails list, cod_curso FK, CR, prof_orientador) ·
 Curso(**codigo**, nome, escola, carga_horaria, prof_coordenador, email, endereco_secretaria, telefones list) ·
@@ -290,8 +342,8 @@ Detalhes_do_Aluno(CPF UNIQUE, campos extras).
 3. busca binária sobre registros · 4. B+ sem ocupação mínima / sem encadeamento / sem propagação até a raiz ·
 5. hash ignorando overflow na busca ou remoção · 6. junções com estruturas da linguagem > área de buffer ·
 7. offsets/tamanhos fora do bloco · 8. eficiência: complexidade (ex.: `list.pop(0)`, cópias de bloco desnecessárias, O(n²) escondido), vazamento de arquivos temporários/handles.
-Pode rodar `/code-review` do Claude Code como apoio. Para cada achado: entrada em `ia_log/code_review.md`, commit `fix(E15)`. Se nada for encontrado num item, registrar **qual teste** comprova.
-**Aceite:** `ia_log/code_review.md` tem seção "Checklist 7.1" com os 8 itens resolvidos; suíte verde.
+Pode rodar `/code-review` do Claude Code como apoio. Para cada achado: entrada em `ia_log/code_review/<módulo revisado>.md` com prefixo `[RC por Px]`; a correção é do dono do módulo, commit `fix(E15)`. Se nada for encontrado num item, registrar **qual teste** comprova.
+**Aceite:** cada `ia_log/code_review/Mx.md` revisado tem seção "Checklist 7.1" com os 8 itens resolvidos; suíte verde.
 
 ---
 
@@ -310,12 +362,12 @@ Pode rodar `/code-review` do Claude Code como apoio. Para cada achado: entrada e
 
 ## E18 — Relatório técnico
 **Arquivo:** `relatorio/relatorio_tecnico.md` (+ PDF se `pandoc` estiver disponível; senão avisar o usuário).
-**Seções:** folha de rosto (nomes completos + DRE — pegar em `PROGRESS.md` › "Dados do usuário"; se vazio, **perguntar**) · 1. Arquitetura (diagrama das 4 camadas) · 2. Decisões e justificativas (a partir de `docs/DECISOES.md`, cada uma com alternativa preterida: bloco, blocagem, registro, cabeçalhos, campos de ordenação, funções de hash, ordem das árvores, buffer) · 3. Base de dados e esquema físico (tabelas, tamanhos de registro, fr, br, volumes) · 4. Metodologia · 5. Resultados (tabelas e gráficos medido × estimado, explicando diferenças) · 6. **Conclusão + lista de recomendações** (qual organização primária, quais índices, qual política de buffer e qual algoritmo para cada carga: seleção pontual, faixa 1%/50%, junções por tamanho e caso a–e).
+**Seções:** folha de rosto (nomes completos + DRE — pegar em `PROGRESS.md` › "Integrantes"; se vazio, **perguntar**) · 1. Arquitetura (diagrama das 4 camadas) · 2. Decisões e justificativas (a partir de `docs/decisoes/*.md`, cada uma com alternativa preterida: bloco, blocagem, registro, cabeçalhos, campos de ordenação, funções de hash, ordem das árvores, buffer) · 3. Base de dados e esquema físico (tabelas, tamanhos de registro, fr, br, volumes) · 4. Metodologia · 5. Resultados (tabelas e gráficos medido × estimado, explicando diferenças) · 6. **Conclusão + lista de recomendações** (qual organização primária, quais índices, qual política de buffer e qual algoritmo para cada carga: seleção pontual, faixa 1%/50%, junções por tamanho e caso a–e).
 **Aceite:** todas as afirmações numéricas vêm dos CSVs (citar arquivo).
 
 ## E19 — Relatório de IA e POST_MORTEM.md
 **Arquivos:** `relatorio/relatorio_ia.md`, `POST_MORTEM.md` (raiz).
-**Conteúdo:** a. log de prompts (`ia_log/prompts.md`) + como obter o código bruto (`git show raw-Exx`) · b. code review (consolidar `ia_log/code_review.md` por categoria, com contagem) · c. bateria de testes (lista, cobertura — `pytest --co -q | tail -1`) e estresse · d. POST_MORTEM: prompts-chave + fragmentos brutos (via `git diff raw-Exx feat-commit -- arquivo`, trechos curtos), justificativa de cada refatoração, evidência de `ia_log/stress_raw_vs_fix.md`.
+**Conteúdo:** a. log de prompts (`ia_log/prompts/*.md`, um por integrante) + como obter o código bruto (`git show raw-Exx`) · b. code review (consolidar `ia_log/code_review/*.md` por categoria e por módulo/autor, com contagem) · c. bateria de testes (lista, cobertura — `pytest --co -q | tail -1`) e estresse · d. POST_MORTEM: prompts-chave + fragmentos brutos (via `git diff raw-Exx feat-commit -- arquivo`, trechos curtos), justificativa de cada refatoração, evidência de `ia_log/stress_raw_vs_fix.md`.
 **Aceite:** POST_MORTEM.md na raiz com as 4 subseções do enunciado §7.2.3.d.
 
 ## E20 — Slides e checklist final

@@ -1,40 +1,49 @@
 # CLAUDE.md — Bancada de Teste de SBD (Avaliação 2, CDB 2026.2 / UFRJ)
 
 Este arquivo é lido automaticamente em toda sessão. Ele define **como trabalhar**.
-O **que fazer** está em `docs/PLANO_EXECUCAO.md`; **onde parou** está em `PROGRESS.md`.
+O projeto é desenvolvido **em paralelo por 5 pessoas, cada uma com sua IA, em módulos**:
+- divisão, dono e arquivos de cada módulo: `docs/MODULOS.md`
+- especificação técnica de cada etapa: `docs/PLANO_EXECUCAO.md` (seções `## Exx`)
+- onde cada módulo parou: `progress/Mx.md` (quadro geral em `PROGRESS.md`)
+- fluxo de Git/PR: `docs/GIT_FLUXO.md`
 
 ## Objetivo do projeto
 Bancada de teste em Python que mede **blocos transferidos entre disco simulado e buffer pool**
 para comparar configurações do Gerente de Armazenamento (organização primária, índices,
 política de buffer, algoritmo de junção/seleção). Enunciado: `material/Avaliacao_2_v2_*.pdf`.
 
-## Protocolo de execução (seguir SEMPRE, em toda sessão)
-1. Ler `PROGRESS.md` → identificar a **primeira etapa com status `pendente` ou `em andamento`**.
-   Se estiver `em andamento`, ler a nota de handoff dela e continuar dali.
-2. Ler **somente a seção dessa etapa** em `docs/PLANO_EXECUCAO.md`
-   (use Grep por `^## E07` e Read com offset/limit — não leia o plano inteiro).
-   Ler também a seção "Decisões fixadas" do plano na primeira etapa de cada camada.
-3. Ler `docs/INTERFACES.md` para conhecer a API das camadas já prontas.
-   **Não** abra o código de outras camadas, a não ser que um teste falhe por causa delas.
-4. Marcar a etapa como `em andamento` no `PROGRESS.md`.
-5. Implementar código **e** testes da etapa.
+## Protocolo de execução (seguir SEMPRE, em toda sessão) — comando `/modulo Mx`
+0. Saber o módulo: vem do argumento de `/modulo` (ex.: `M3`). Sem argumento → perguntar ao usuário.
+   Conferir a branch: deve ser `mod/Mx-<nome>` (criar a partir de `main` se não existir).
+   Atualizar: `git fetch origin && git merge origin/main` (resolver conflitos só em arquivos do seu módulo;
+   em arquivos de outros, aceitar a versão de `main`).
+1. Ler `progress/Mx.md` → primeira etapa `pendente` ou `em andamento` (se em andamento, seguir a nota de handoff).
+   Se as dependências do módulo (ver `docs/MODULOS.md`) ainda não estão em `main`, trabalhar contra os fakes.
+2. Ler **somente** a seção do módulo em `docs/MODULOS.md` e a seção da etapa em `docs/PLANO_EXECUCAO.md`
+   (Grep por `^### Mx` / `^## Exx` e Read com offset/limit — não leia os arquivos inteiros).
+3. Ler `docs/INTERFACES.md` e o(s) `contracts.py` que o módulo implementa/usa.
+   **Não** abra o código de outros módulos, a não ser que um teste falhe por causa deles.
+4. **Propriedade de arquivos:** só criar/editar arquivos do seu módulo (lista em `docs/MODULOS.md`).
+   Mudança em contrato ou arquivo alheio → parar, escrever "Pedido de mudança de contrato" em
+   `progress/Mx.md` e avisar o usuário. Nunca mudar uma assinatura de contrato por conta própria.
+5. Marcar a etapa `em andamento` em `progress/Mx.md`. Implementar código **e** testes.
 6. **Antes de rodar os testes**: `git add -A && git commit -m "ia-raw(Exx): <resumo>"` e
    `git tag raw-Exx` (evidência do código bruto da IA, exigida no Post-Mortem).
-7. Rodar os testes da etapa e corrigir até passar. Cada defeito encontrado nesse ciclo vira uma
-   entrada em `ia_log/code_review.md` (formato no fim deste arquivo).
-   Commit das correções: `fix(Exx): <defeito corrigido>`.
-8. Rodar a suíte completa: `.venv/Scripts/python -m pytest -q -x` (nada pode quebrar).
-9. Atualizar `docs/INTERFACES.md` com as assinaturas públicas novas (só assinaturas + 1 linha).
-10. Atualizar `PROGRESS.md`: status `concluída`, nota de handoff (≤ 8 linhas: o que foi feito,
-    decisões tomadas e por quê, pendências). Registrar decisões novas em `docs/DECISOES.md`
-    (alimenta o relatório: toda escolha precisa de justificativa e alternativa preterida).
-11. `git commit -m "feat(Exx): <resumo>"`.
-12. **Parar** e dizer ao usuário: "Etapa Exx concluída. Rode `/clear` e depois `/proxima-etapa`."
+7. Rodar os testes da etapa e corrigir até passar. Cada defeito encontrado vira uma entrada em
+   `ia_log/code_review/Mx.md` (formato no fim deste arquivo). Commit: `fix(Exx): <defeito>`.
+8. Rodar a suíte completa: `python -m pytest -q -x` com o Python do venv (nada pode quebrar) e
+   também os testes de contrato do seu módulo em `tests/contratos/`.
+9. Decisões novas em `docs/decisoes/Mx.md` (valor · justificativa · alternativa preterida).
+10. Atualizar `progress/Mx.md`: status `concluída` + nota de handoff (≤ 8 linhas).
+11. `git commit -m "feat(Exx): <resumo>"`, `git push -u origin mod/Mx-<nome> --tags`.
+    Se o `gh` estiver disponível e autenticado, abrir PR para `main` (título `Mx/Exx: <resumo>`);
+    senão, dizer ao usuário para abrir o PR no GitHub.
+12. **Parar** e dizer: "Etapa Exx (Mx) concluída e enviada. Rode `/clear` e depois `/modulo Mx`."
     Não emende a etapa seguinte na mesma sessão (economia de contexto).
 
 ### Economia de tokens
 - Uma etapa por sessão. Se o contexto ficar grande no meio da etapa: commit `wip(Exx)`,
-  escreva a nota de handoff com o próximo passo exato, marque `em andamento` e pare.
+  escreva a nota de handoff em `progress/Mx.md` com o próximo passo exato, marque `em andamento`, faça push e pare.
 - **Nunca leia os PDFs inteiros.** As fórmulas e seções do livro estão em `docs/REFERENCIA_LIVRO.md`.
   Se precisar do livro: no máximo 3 páginas por vez; página do PDF = página impressa + 29.
 - Testes: `pytest -q`; em falhas, `pytest -q -x --tb=short`. Não despeje CSVs/logs grandes —
@@ -59,13 +68,14 @@ política de buffer, algoritmo de junção/seleção). Enunciado: `material/Aval
 - Offsets/tamanhos de campos variáveis sempre validados contra os limites do bloco.
 
 ## Convenções
-- Python 3.11, venv em `.venv` (`.venv/Scripts/python` no Windows). Dependências em `requirements.txt`.
+- Python 3.11, venv em `.venv` (`.venv/Scripts/python` no Windows, `.venv/bin/python` no Linux/macOS).
+  Dependências em `requirements.txt` (mudanças nele: só via PR do M0).
 - Código e comentários em português; docstring de cada algoritmo cita a seção do Silberschatz.
 - Configuração em `config/*.yaml`; nada de números mágicos espalhados.
 - Dados gerados em `data/` (fora do git); resultados em `results/` (no git).
 - Commits pequenos, prefixos: `ia-raw`, `fix`, `feat`, `test`, `docs`, `wip`.
 
-## Formato de entrada em `ia_log/code_review.md`
+## Formato de entrada em `ia_log/code_review/Mx.md`
 ```
 ### [Exx] <título do defeito>
 - Arquivo: src/...:linha  | Categoria: (buffer fora do BM | pin/unpin | dirty | busca binária | B+ | hash overflow | memória da junção | offset | eficiência | outro)

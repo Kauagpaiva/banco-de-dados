@@ -1,46 +1,46 @@
-# PROGRESS — estado da execução
+# PROGRESS — quadro geral
 
-> Mantido pelo Claude Code ao fim de cada etapa (ver protocolo no `CLAUDE.md`).
-> Status: `pendente` · `em andamento` · `concluída` · `bloqueada (motivo)`
+> O status detalhado de cada módulo fica em `progress/Mx.md` (cada módulo edita só o seu,
+> para não gerar conflito de merge). Este quadro é atualizado pelo líder ao integrar.
+> Divisão e regras: `docs/MODULOS.md` · Fluxo de Git: `docs/GIT_FLUXO.md`.
 
-## Dados do usuário (para folha de rosto — preencher)
-- Integrantes (nome completo — DRE):
-  - 
-- Repositório remoto (GitHub Classroom/GitLab): 
-- Data da apresentação: 
+## Integrantes (nome completo — DRE) — preencher
+| Papel | Nome completo | DRE | Usuário GitHub |
+|---|---|---|---|
+| P1 (líder) | | | |
+| P2 | | | |
+| P3 | | | |
+| P4 | | | |
+| P5 | | | |
 
-## Etapas
-| Etapa | Descrição | Status |
-|---|---|---|
-| E00 | Ambiente e esqueleto | concluída |
-| E01 | Gerente de Arquivos | pendente |
-| E02 | Gerente de Buffer Pool (LRU/MRU/FIFO/Clock) | pendente |
-| E03 | Registros, slotted page, catálogo | pendente |
-| E04 | Heap + interface FileOrganization | pendente |
-| E05 | B+ parte 1 (busca, inserção, split) | pendente |
-| E06 | B+ parte 2 (remoção, NOT UNIQUE, bulk load) | pendente |
-| E07 | Hash estático externo | pendente |
-| E08 | Índices secundários + métodos de acesso | pendente |
-| E09 | Gerador da base + carga + SQLite | pendente |
-| E10 | Seleção (A1–A6, hash) | pendente |
-| E11 | Ordenação externa + BNL + INL | pendente |
-| E12 | Sort-merge join + partition-hash join | pendente |
-| E13 | Modelo de custo (estimado × medido) | pendente |
-| E14 | Orquestrador + matriz de experimentos | pendente |
-| E15 | Code review adversarial (checklist 7.1) | pendente |
-| E16 | Estresse: bruto × refatorado | pendente |
-| E17 | Execução completa + gráficos | pendente |
-| E18 | Relatório técnico | pendente |
-| E19 | Relatório de IA + POST_MORTEM.md | pendente |
-| E20 | Slides + checklist final | pendente |
+- Repositório: https://github.com/Kauagpaiva/banco-de-dados
+- Data da apresentação:
 
-## Notas de handoff
-<!-- Formato: ### Exx — AAAA-MM-DD  (≤ 8 linhas: feito, decisões, pendências, próximo passo se WIP) -->
+## Módulos
+| Módulo | Descrição | Fase | Dono | Status |
+|---|---|---|---|---|
+| M0 | Contratos, fakes e infraestrutura | 0 | P1 | `progress/M0.md` |
+| M1 | Gerente de Arquivos + Buffer Pool | 1 | P1 | `progress/M1.md` |
+| M2 | Registros, slotted page, catálogo, Heap, TempFile | 1 | P2 | `progress/M2.md` |
+| M3 | Árvore B+ primária | 1 | P3 | `progress/M3.md` |
+| M4 | Hash estático + HashIndex secundário | 1 | P4 | `progress/M4.md` |
+| M5 | Seleção, ordenação externa, BNL, INL | 1 | P5 | `progress/M5.md` |
+| M5J | Sort-merge join + partition-hash join | 1 | P2 | `progress/M5J.md` |
+| M6 | Modelo de custo | 1 | P1 | `progress/M6.md` |
+| M7 | Gerador da base + SQLite | 1 | P4 | `progress/M7.md` |
+| M8 | Índices B+ secundários, registry, loader | 2 | P3 | `progress/M8.md` |
+| M9 | Orquestrador + experimentos | 2 | P4 | `progress/M9.md` |
+| M10 | Integração vs SQLite + estimado × medido | 2 | P5 | `progress/M10.md` |
+| M11 | Estresse bruto × refatorado | 2 | P2 | `progress/M11.md` |
+| RC | Code review cruzado | 2 | todos | `progress/RC.md` |
+| M12 | Execução completa + gráficos | 3 | P4 | `progress/M12.md` |
+| M13 | Relatório técnico | 3 | P1+P2 | `progress/M13.md` |
+| M14 | Relatório de IA + POST_MORTEM | 3 | P3 | `progress/M14.md` |
+| M15 | Slides + checklist final | 3 | P5 | `progress/M15.md` |
 
-### E00 — 2026-11-24
-- Feito: .gitignore, venv + requirements.txt (versões fixadas), árvore src/{common,storage,access,executor,bench}, tests/, config/base.yaml (decisões fixadas + perfis), pytest.ini (marker stress, pythonpath=.).
-- `src/common/config.py`: `load_config(perfil, overrides)` → `Config` frozen (Mappings read-only), valida soma das áreas, políticas e block_size. `erros.py`, `tipos.py` (RID, PageId).
-- `tests/test_arquitetura.py`: AST, regra de camadas + proíbe `src.storage.file_manager` fora de storage.
-- Docs: INTERFACES, DECISOES (D01–D23), code_review (1 defeito no analisador), README. Hook de prompts confirmado (prompts.md recebeu esta sessão).
-- Decisão: PDFs de material/ continuam versionados (já estavam no commit init) — usuário pode pedir para remover.
-- 20 testes verdes. Pendência: preencher dados do usuário (nomes/DRE) no topo deste arquivo.
+## Marcos de integração
+- [ ] Fase 0: M0 em `main` (libera a Fase 1)
+- [ ] M1 + M2 em `main` (testes passam a usar buffer/página reais)
+- [ ] Fase 1 completa em `main` (libera a Fase 2)
+- [ ] Fase 2 completa (libera os experimentos)
+- [ ] Entrega: relatórios, POST_MORTEM.md, slides
