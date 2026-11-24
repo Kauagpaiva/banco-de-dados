@@ -446,7 +446,8 @@ class TempFile(ABC):
 
 class StorageContext(ABC):
     """O que o executor precisa do armazenamento sem importar `storage`.
-    Real: `src.access.context.criar_contexto(cfg, base_dir=None)` (M2)."""
+    Real: `src.access.context.criar_contexto(cfg, base_dir=None, *, bm=None, catalog=None)` (M2);
+    `bm`/`catalog` injetáveis para testar o contexto real sobre fakes."""
     cfg: Any
 
     @property

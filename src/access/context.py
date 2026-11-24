@@ -13,7 +13,9 @@ from src.storage.contracts import BufferManagerAPI, Frame
 
 
 class ContextoArmazenamento(StorageContext):
-    def __init__(self, cfg, base_dir: Path | str | None = None):
+    def __init__(self, cfg, base_dir: Path | str | None = None, *,
+                 bm: BufferManagerAPI | None = None, catalog: CatalogAPI | None = None):
+        """`bm`/`catalog` injetáveis (testes com fakes); None → FileManager+BufferManager+Catalog reais."""
         raise NotImplementedError("M2")
 
     @property
@@ -52,6 +54,8 @@ class ContextoArmazenamento(StorageContext):
         raise NotImplementedError
 
 
-def criar_contexto(cfg, base_dir: Path | str | None = None) -> StorageContext:
-    """Fábrica usada pelo executor/bench: `ContextoArmazenamento(cfg, base_dir)`."""
-    return ContextoArmazenamento(cfg, base_dir)
+def criar_contexto(cfg, base_dir: Path | str | None = None, *,
+                   bm: BufferManagerAPI | None = None,
+                   catalog: CatalogAPI | None = None) -> StorageContext:
+    """Fábrica usada pelo executor/bench: `ContextoArmazenamento(cfg, base_dir, bm=, catalog=)`."""
+    return ContextoArmazenamento(cfg, base_dir, bm=bm, catalog=catalog)

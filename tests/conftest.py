@@ -99,7 +99,7 @@ def codec(so_fakes):
 def ctx(cfg, bm, tmp_path, so_fakes, page_impl, codec, _buffers_sem_pins):
     def real():
         from src.access.context import criar_contexto
-        return criar_contexto(cfg, tmp_path / "ctx")
+        return criar_contexto(cfg, tmp_path / "ctx", bm=bm)   # bm real ou fake (fixture)
     c = real_ou_fake(real, lambda: FakeStorageContext(cfg, bm, page_impl=page_impl,
                                                       codec_factory=codec), so_fakes)
     _buffers_sem_pins.append(c.bm)

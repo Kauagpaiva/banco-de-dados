@@ -13,7 +13,7 @@ N = 700
 def contexto(request, cfg, bm, tmp_path, page_impl, codec, _buffers_sem_pins):
     def real():
         from src.access.context import criar_contexto
-        return criar_contexto(cfg, tmp_path / "ctx")
+        return criar_contexto(cfg, tmp_path / "ctx", bm=bm)
     c = construir(request.param, real,
                   lambda: FakeStorageContext(cfg, bm, page_impl=page_impl, codec_factory=codec))
     _buffers_sem_pins.append(c.bm)
