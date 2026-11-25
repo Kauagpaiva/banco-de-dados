@@ -66,7 +66,8 @@ def test_smj_exemplo_livro_M3():
 
 
 def test_smj_exemplo_livro_M25():
-    assert custo_smj(TAKES, STUDENT, 25, 1) == {"transferencias": 2500, "seeks": 1640}
+    # pág. 711: 2 500 transf.; seeks = 832 + 208 + 500 = 1 540 (o texto diz 1 640: erro de soma)
+    assert custo_smj(TAKES, STUDENT, 25, 1) == {"transferencias": 2500, "seeks": 832 + 208 + 500}
 
 
 def test_smj_entradas_ordenadas():

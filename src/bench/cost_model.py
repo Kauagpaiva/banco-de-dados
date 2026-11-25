@@ -167,7 +167,8 @@ def custo_smj(r: InfoTabela, s: InfoTabela, M: int, bb: int = 1, *, ordenado_r: 
     Merge: br + bs transferências; ⌈br/bb⌉ + ⌈bs/bb⌉ seeks. Cada entrada não ordenada soma
     custo_sort + gravação do resultado ordenado (b transferências, ⌈b/bb⌉ seeks).
     Exemplo do livro (M=3): 9 100 transferências e 8 436 seeks — o texto diz 8 932, mas as suas
-    próprias parcelas (6 668 + 1 268 + 500) somam 8 436 (ver docs/decisoes/M6.md).
+    próprias parcelas (6 668 + 1 268 + 500) somam 8 436; com M=25: 2 500 / 1 540 (o texto diz
+    1 640, mas 832 + 208 + 500 = 1 540). Ver docs/decisoes/M6.md.
     Assume que cada grupo de mesma chave de s cabe na memória.
     """
     _validar_M(M, 3)
