@@ -10,6 +10,11 @@ Regras:
   (nada é pinado nesse caso).
 - `reservar_tuplas(n, tam)` soma n·tam bytes; passar de `paginas_em_uso · block_size`
   → `MemoryBudgetError`. Liberar páginas que ainda guardam tuplas também é erro.
+- `reservar_paginas_io(n)` (E11) conta n páginas contra M **sem pinar**: são os frames de E/S
+  que o próprio operador usa via TempFile/organização (buffer de saída, buffer da interna,
+  leitura de run). Sem isso, com M = capacidade da área, o frame de append do temporário não
+  caberia ao lado das M páginas de rascunho pinadas. Também dão capacidade para tuplas (15.4:
+  a geração de runs ordena em todas as M páginas e reaproveita uma como saída).
 - `liberar_tudo()` (chamado pelo `with`) solta todas as páginas e zera as tuplas.
 """
 from __future__ import annotations
@@ -35,6 +40,7 @@ class MemoryBudget(MemoryBudgetAPI):
         self._M = M
         self._block_size = ctx.bm.block_size
         self._frames: list = []
+        self._io = 0
         self._bytes_tuplas = 0
         self._n_tuplas = 0
 
@@ -45,7 +51,11 @@ class MemoryBudget(MemoryBudgetAPI):
 
     @property
     def paginas_em_uso(self) -> int:
-        return len(self._frames)
+        return len(self._frames) + self._io
+
+    @property
+    def paginas_io(self) -> int:
+        return self._io
 
     @property
     def frames(self) -> tuple:
@@ -58,7 +68,7 @@ class MemoryBudget(MemoryBudgetAPI):
 
     @property
     def bytes_disponiveis(self) -> int:
-        return len(self._frames) * self._block_size - self._bytes_tuplas
+        return self.paginas_em_uso * self._block_size - self._bytes_tuplas
 
     def tuplas_por_pagina(self, tam: int) -> int:
         if tam <= 0:
@@ -69,9 +79,9 @@ class MemoryBudget(MemoryBudgetAPI):
     def reservar_paginas(self, n: int) -> None:
         if n < 0:
             raise ValueError(f"n negativo: {n}")
-        if len(self._frames) + n > self._M:
+        if self.paginas_em_uso + n > self._M:
             raise MemoryBudgetError(
-                f"reservar {n} páginas excede M={self._M} (em uso: {len(self._frames)})")
+                f"reservar {n} páginas excede M={self._M} (em uso: {self.paginas_em_uso})")
         novos = []
         try:
             for _ in range(n):
@@ -85,22 +95,40 @@ class MemoryBudget(MemoryBudgetAPI):
     def liberar_paginas(self, n: int) -> None:
         if n < 0 or n > len(self._frames):
             raise ValueError(f"liberar {n} páginas, mas há {len(self._frames)} em uso")
-        restante = (len(self._frames) - n) * self._block_size
+        restante = (self.paginas_em_uso - n) * self._block_size
         if self._bytes_tuplas > restante:
             raise MemoryBudgetError(
                 f"liberar {n} páginas deixaria {self._bytes_tuplas} B de tuplas em {restante} B")
         for _ in range(n):
             self._ctx.unpin_work_page(self._frames.pop())
 
+    def reservar_paginas_io(self, n: int) -> None:
+        """Conta n frames de E/S (não pinados aqui) contra M."""
+        if n < 0:
+            raise ValueError(f"n negativo: {n}")
+        if self.paginas_em_uso + n > self._M:
+            raise MemoryBudgetError(
+                f"reservar {n} páginas de E/S excede M={self._M} (em uso: {self.paginas_em_uso})")
+        self._io += n
+
+    def liberar_paginas_io(self, n: int) -> None:
+        if n < 0 or n > self._io:
+            raise ValueError(f"liberar {n} páginas de E/S, mas há {self._io}")
+        restante = (self.paginas_em_uso - n) * self._block_size
+        if self._bytes_tuplas > restante:
+            raise MemoryBudgetError(
+                f"liberar {n} páginas de E/S deixaria {self._bytes_tuplas} B em {restante} B")
+        self._io -= n
+
     # ------------------------------------------------------------------ tuplas
     def reservar_tuplas(self, n: int, tam: int) -> None:
         if n < 0 or tam <= 0:
             raise ValueError(f"reserva inválida: n={n}, tam={tam}")
         novo = self._bytes_tuplas + n * tam
-        cap = len(self._frames) * self._block_size
+        cap = self.paginas_em_uso * self._block_size
         if novo > cap:
             raise MemoryBudgetError(
-                f"{n} tuplas de {tam} B excedem as {len(self._frames)} páginas reservadas "
+                f"{n} tuplas de {tam} B excedem as {self.paginas_em_uso} páginas reservadas "
                 f"({novo} B > {cap} B)")
         self._bytes_tuplas = novo
         self._n_tuplas += n
@@ -115,6 +143,7 @@ class MemoryBudget(MemoryBudgetAPI):
     def liberar_tudo(self) -> None:
         self._bytes_tuplas = 0
         self._n_tuplas = 0
+        self._io = 0
         erro = None
         while self._frames:
             fr = self._frames.pop()

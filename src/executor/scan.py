@@ -152,3 +152,52 @@ def operacao_medida(ctx: StorageContext, corpo: Iterator[dict],
         metricas = metricas_vazias()
         metricas["escrita_saida"] = 0
     return IteradorMedido(ctx, corpo, metricas, extras), metricas
+
+
+# =========================================================================== E11: saída
+def forcar_gravacao(ctx: StorageContext, tmp: TempFile) -> int:
+    """Forced output (Silberschatz 13.5.1) dos blocos de um TempFile já fechado: grava os
+    que ainda estão dirty no buffer, para que a escrita do resultado apareça nas métricas da
+    própria operação (e não numa evicção futura). Devolve o nº de blocos do arquivo."""
+    fid = getattr(tmp, "fid", None)
+    if fid is not None:
+        for bno in tmp.blocks():
+            ctx.bm.flush(fid, bno)
+    return tmp.num_blocks()
+
+
+def saida_juncao(ctx: StorageContext, corpo: Iterator[dict], esquema, materializar: bool
+                 ) -> tuple[IteradorMedido, Metricas]:
+    """Saída comum dos operadores de junção (contrato do executor).
+
+    `materializar=False`: o iterador devolve as tuplas de `corpo` à medida que são produzidas.
+    `materializar=True`: `corpo` é esgotado num TempFile (área 'trabalho'), os blocos são
+    forçados a disco e o iterador lê do arquivo, que é apagado ao fim; `escrita_saida` = nº
+    de blocos gravados do resultado (também somados em `writes`)."""
+    if not materializar:
+        return operacao_medida(ctx, corpo)
+    estado = {"escrita_saida": 0}
+    return operacao_medida(ctx, _materializado(ctx, corpo, esquema, estado),
+                           extras=lambda: dict(estado))
+
+
+def _materializado(ctx: StorageContext, corpo: Iterator[dict], esquema,
+                   estado: dict) -> Iterator[dict]:
+    tmp = None
+    try:
+        try:
+            tmp = ctx.temp_file(esquema, "res")
+            for rec in corpo:
+                tmp.append(rec)
+        finally:
+            _fechar(corpo)            # solta as páginas do operador antes de ler o resultado
+        tmp.close()
+        estado["escrita_saida"] = forcar_gravacao(ctx, tmp)
+        it = tmp.scan()
+        try:
+            yield from it
+        finally:
+            _fechar(it)
+    finally:
+        if tmp is not None:
+            tmp.delete()
