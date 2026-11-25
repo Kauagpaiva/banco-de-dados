@@ -8,7 +8,7 @@ Silberschatz 15.4 (REFERENCIA_LIVRO §7):
 
 Memória (MemoryBudget, D-M5-08): na geração, M−1 páginas de rascunho pinadas + 1 página de
 E/S (o frame do append do run); cada bloco lido conta como 1 página de tuplas. No merge,
-N·bb páginas pinadas para os buffers de entrada + bb de E/S para a saída. Nenhuma lista
+N·bb páginas de E/S para os buffers de entrada + bb para a saída (frames dos TempFiles). Nenhuma lista
 Python guarda mais tuplas do que as páginas reservadas comportam.
 
 Ordem: crescente pela tupla de campos de `chave`; nulos primeiro (como o SQLite). Estável.
@@ -236,10 +236,14 @@ def _passo_merge(ctx: StorageContext, mb: MemoryBudget, runs: list[TempFile], es
 
 def _merge(ctx: StorageContext, mb: MemoryBudget, grupo: list[TempFile], esquema: Esquema,
            ordem, bb: int, criados: list) -> TempFile:
-    """Merge (N)-way com heap de prioridade: (chave, índice do run) — estável e sem comparar dicts."""
-    paginas = len(grupo) * bb
-    mb.reservar_paginas(paginas)
-    mb.reservar_paginas_io(bb)
+    """Merge (N)-way com heap de prioridade: (chave, índice do run) — estável e sem comparar dicts.
+
+    Os N·bb buffers de entrada são os próprios frames em que `records_in_block` lê os blocos
+    dos runs, e os bb de saída são os do append: tudo conta como página de E/S (não pinada).
+    Pinar rascunhos aqui deixaria, com a área 'trabalho' = M, um único frame para leitura e
+    saída, e a página de saída seria expulsa e relida a cada recarga (defeito da raw-E11)."""
+    paginas = len(grupo) * bb + bb
+    mb.reservar_paginas_io(paginas)
     cursores = [_Cursor(run, mb, bb, ctx.bm.block_size) for run in grupo]
     try:
         heap: list[tuple[Any, int, dict]] = []
@@ -260,6 +264,5 @@ def _merge(ctx: StorageContext, mb: MemoryBudget, grupo: list[TempFile], esquema
     finally:
         for c in cursores:
             c.liberar()
-        mb.liberar_paginas_io(bb)
-        mb.liberar_paginas(paginas)
+        mb.liberar_paginas_io(paginas)
     return saida
