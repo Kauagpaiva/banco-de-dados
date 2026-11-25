@@ -203,3 +203,28 @@ def _fechar(it: Any) -> None:
     fechar = getattr(it, "close", None)
     if callable(fechar):
         fechar()
+
+
+# =========================================================================== uso pelo INL (E11)
+def caminho_igualdade(am: AccessMethod, campo: str) -> str:
+    """Melhor caminho estrutural para `campo = v` em `am` (usado pelo indexed nested-loop,
+    15.5.3): organização primária no campo (A2/A3 ou HASH_PRIM) > índice secundário
+    (A4/HASH_SEC). Sem estrutura no campo → ValueError (o INL exige índice)."""
+    t = am.tabela
+    if getattr(t, "campo", None) == campo:
+        tipo = getattr(t, "tipo_org", None)
+        if tipo == "bplus":
+            return "A2" if getattr(t, "unique", False) else "A3"
+        if tipo == "hash":
+            return "HASH_PRIM"
+    if am.indice(campo) is not None:
+        return "A4"
+    raise ValueError(f"{am.esquema.nome}: não há índice nem organização primária em {campo!r}")
+
+
+def buscar_igualdade(am: AccessMethod, campo: str, valor: Any, caminho: str) -> Iterator[dict]:
+    """Corpo (sem medição) de σ_{campo = valor} pelo `caminho` de `caminho_igualdade`.
+    Valor nulo → nenhum registro (nulos não casam)."""
+    if valor is None:
+        return iter(())
+    return _planejar(am, Predicado(campo, "=", valor), caminho)
