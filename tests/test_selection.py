@@ -110,7 +110,8 @@ def montar(ctx, page_impl, codec):
             ix.open()
             for rid, r in zip(rids, tabela_registros(tabela, rids)):
                 if r[c] is not None:
-                    ix.insert(r[c], r[tabela.campo] if por_chave else rid)
+                    chave = tabela.campo or ALUNO.chave[0]   # heap não tem campo de org.
+                    ix.insert(r[c], r[chave] if por_chave else rid)
             idxs[c] = ix
         return AccessMethod(tabela, idxs, f"{org}:{campo}")
     return fabrica
