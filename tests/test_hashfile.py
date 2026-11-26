@@ -213,7 +213,9 @@ def test_dispersao_no_arquivo(bm, page_impl, codec):
     est = h.estatisticas()
     assert set(est) == {"buckets", "overflow", "cadeia_max", "cadeia_media", "fator_carga",
                         "cv_ocupacao"}
-    assert est["cv_ocupacao"] < 0.6
+    # hash uniforme ⇒ ocupação ~ Poisson(λ = nr/nB) ⇒ CV esperado ≈ 1/sqrt(λ)
+    esperado = (est["buckets"] / len(regs)) ** 0.5
+    assert est["cv_ocupacao"] < 1.3 * esperado, (est["cv_ocupacao"], esperado)
     assert 0 < est["fator_carga"] <= 1.0
     for r in regs[::97]:
         assert r in [h.read(rid) for rid, _ in h.find_all("CPF", "=", r["CPF"])]
