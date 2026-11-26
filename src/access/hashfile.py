@@ -397,9 +397,11 @@ class HashFile(FileOrganization):
     # ------------------------------------------------------------------ manutenção/medidas
     def reorganize(self) -> None:
         """Compacta cada bloco (slots estáveis ⇒ RIDs preservados). nB é fixo (hash estático)."""
-        for bno, _ in list(self._blocos_fisicos()):
-            with self.bm.page(self.fid, bno, self.area, dirty=True) as fr:
-                self.page.compact(fr.data)
+        self._exigir_aberto()
+        for b in range(self.n_buckets):
+            for _, bno, _, _ in self._cadeia(b):    # 1 pin por vez; só nº de bloco em memória
+                with self.bm.page(self.fid, bno, self.area, dirty=True) as fr:
+                    self.page.compact(fr.data)
 
     def num_blocks(self) -> int:
         self._exigir_aberto()
