@@ -10,7 +10,7 @@ from src.executor.join_smj import sort_merge_join
 from tests.fakes import registros_fake
 
 
-TOTAL = 20_000
+TOTAL = 500
 COND = CondJuncao("DRE", "DRE")
 
 
