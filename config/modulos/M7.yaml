@@ -1,0 +1,23 @@
+# Chaves do M7 (gerador da base + referência SQLite). Justificativas em docs/decisoes/M7.md.
+datagen:
+  cr:                         # CR ~ normal truncada em [min, max], atribuída por posto (quantis exatos)
+    media: 6.5
+    desvio: 1.8
+    min: 0.0
+    max: 10.0
+    frac_x1: 0.01             # CR > x1  -> exatamente round(frac_x1 * nr) alunos
+    frac_x50: 0.50            # CR < x50 -> exatamente round(frac_x50 * nr) alunos
+  turmas_por_professor: 4     # n_professores = ceil(nr(Turma) / 4)
+  frac_sem_orientador: 0.10   # Aluno.prof_orientador = NULL
+  frac_media_nula: 0.05       # Inscricao.media_final = NULL (aluno ainda cursando)
+  frac_sem_pai: 0.10          # Detalhes.nome_pai = NULL
+  frac_sem_obs: 0.60          # Detalhes.observacoes = NULL
+  base_dre: 120000000         # DRE = base_dre + i (i = 1..nr), emitidos em ordem embaralhada
+  base_codigo_curso: 100
+  base_codigo_disciplina: 1000
+  base_numero_turma: 1
+  ano_min: 2019
+  ano_max: 2026
+sqlite_ref:
+  arquivo: ref.sqlite         # data/<perfil>/ref.sqlite
+  lote: 5000                  # linhas por executemany
