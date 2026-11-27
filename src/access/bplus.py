@@ -1,8 +1,8 @@
-"""Árvore B+ como organização primária (Camada 3) — M3 (E05: busca/inserção; E06: remoção etc.).
+"""Árvore B+ como organização primária (Camada 3) — M3 (E05: busca/inserção; E06: remoção, NOT UNIQUE, bulk load).
 
 Silberschatz 14.3 (estrutura, busca, inserção com split propagado até a raiz), 14.4.1
-(organização de arquivo B+: as folhas guardam os registros), 14.3.5 (NOT UNIQUE — E06),
-14.5 (bulk loading — E06). REFERENCIA_LIVRO §4. Contrato: `FileOrganization`.
+(organização de arquivo B+: as folhas guardam os registros), 14.3.5 (NOT UNIQUE),
+14.5 (bulk loading). REFERENCIA_LIVRO §4. Contrato: `FileOrganization`.
 
 Arquivo: 1 arquivo por árvore (bloco 0 = cabeçalho do FileManager). Meta no cabeçalho:
 `raiz`, `altura`, `nregs`, `primeira` (folha mais à esquerda), `nfolhas`, `ninternos`.
@@ -22,6 +22,14 @@ Layout dos nós (todos os inteiros little-endian; B = tamanho do bloco):
             direta no buffer. Chave: int '<q' · float '<d' · date '<i'(ordinal) · char/varchar
             `u16 tamanho + utf-8` preenchido até `n` bytes.
 
+NOT UNIQUE (14.3.5): cada entrada de folha ganha o prefixo `u64 uniquificador` (contador crescente em
+`prox_uniq`, no cabeçalho) e a chave de ordenação passa a ser a tupla `(valor, uniquificador)`; nos nós
+internos o slot da chave ganha +8 B. Duplicatas ficam contíguas, em ordem de inserção.
+
+Remoção (14.3.3): folha/nó abaixo do mínimo → fusão com o irmão se couber num nó, senão
+redistribuição; propaga até a raiz; raiz interna com 1 filho é removida (altura diminui).
+Bulk loading (14.5/14.4): folhas preenchidas até `fill` e níveis internos construídos de baixo para cima.
+
 Fan-out: `fanout() = n` = nº máximo de ponteiros de um nó interno = (B − 8 − 4) // (ks + 4) + 1.
 Nó interno não-raiz: de ⌈n/2⌉ a n ponteiros; raiz interna: ≥ 2. Folha (registros de tamanho
 variável ⇒ ocupação por BYTES): a divisão escolhe o ponto mais balanceado, logo toda folha
@@ -34,7 +42,7 @@ import struct
 from typing import Any, Iterator, Mapping, Optional
 
 from src.access.contracts import Esquema, FileOrganization, RecordCodecAPI, padroes
-from src.common.erros import ChaveDuplicadaError, OperacaoNaoSuportada, RecordError
+from src.common.erros import ChaveDuplicadaError, OperacaoNaoSuportada, RecordError, StorageError
 from src.common.tipos import RID, Predicado
 from src.storage.contracts import BufferManagerAPI
 
@@ -44,6 +52,8 @@ CAB = struct.Struct("<BBHI")
 TAM_CAB = CAB.size                     # 8
 U16 = struct.Struct("<H")
 U32 = struct.Struct("<I")
+U64 = struct.Struct("<Q")
+UMAX = (1 << 64) - 1
 SOBRA_REG = 4                          # u16 de tamanho + u16 do diretório, por registro
 
 
@@ -89,8 +99,6 @@ class BPlusTree(FileOrganization):
     def __init__(self, bm: BufferManagerAPI, nome: str, esquema: Esquema, campo: str, *,
                  unique: bool = True, page_impl: type | None = None,
                  codec: RecordCodecAPI | None = None):
-        if not unique:
-            raise OperacaoNaoSuportada("B+ NOT UNIQUE: previsto na E06")
         self.bm = bm
         self.nome = nome
         self.esquema = esquema
@@ -101,13 +109,16 @@ class BPlusTree(FileOrganization):
         _, self.codec = padroes(esquema, page_impl, codec)   # page_impl: não usado (layout próprio)
         self.B = bm.block_size
         self.C = self.B - TAM_CAB                              # bytes úteis de uma folha
-        self.m = self.codec.max_size + SOBRA_REG               # maior entrada de folha
+        self._pre = 0 if unique else 8                         # prefixo do uniquificador na entrada
+        self.m = self.codec.max_size + SOBRA_REG + self._pre   # maior entrada de folha
         if 2 * self.m > self.C:
             raise ValueError(f"registro de até {self.codec.max_size} B não cabe 2× no bloco de {self.B} B")
-        self.ks = self._kc.tam
+        self.ks = self._kc.tam + self._pre                     # slot da chave nos nós internos
         self._n = (self.B - TAM_CAB - 4) // (self.ks + 4) + 1   # fan-out
         if self._n < 4:
             raise ValueError("fan-out < 4: bloco pequeno demais para a chave")
+        self._min_folha = (self.C - self.m) // 2                # bytes
+        self._min_filhos = (self._n + 1) // 2                   # ⌈n/2⌉ ponteiros
         self.fid: Optional[int] = None
         self._meta: dict = {}
         self._cursor: Optional[Iterator[RID]] = None
@@ -117,17 +128,20 @@ class BPlusTree(FileOrganization):
         if self.bm.exists(self.nome):
             self.fid = self.bm.open(self.nome)
             self._meta = dict(self.bm.header(self.fid)["meta"])
-            if self._meta.get("campo") != self.campo:
-                raise ValueError(f"{self.nome}: arquivo criado para o campo {self._meta.get('campo')!r}")
+            if self._meta.get("campo") != self.campo or self._meta.get("unico") != self.unique:
+                raise ValueError(f"{self.nome}: arquivo criado com outro campo/modo (UNIQUE)")
         else:
             self.fid = self.bm.create(self.nome, self.tipo_org, {"campo": self.campo})
-            with self.bm.fresh_page(self.fid, "dados") as fr:
-                self._fmt_folha(fr.data, [], 0)
-                raiz = fr.bno
-            self._meta = {"campo": self.campo, "raiz": raiz, "altura": 1, "nregs": 0,
-                          "primeira": raiz, "nfolhas": 1, "ninternos": 0}
-            self._salvar_meta()
+            self._meta = {"campo": self.campo, "unico": self.unique, "prox_uniq": 1}
+            self._nova_raiz_vazia()
         self._cursor = None
+
+    def _nova_raiz_vazia(self) -> None:
+        with self.bm.fresh_page(self.fid, "dados") as fr:
+            self._fmt_folha(fr.data, [], 0)
+            raiz = fr.bno
+        self._meta.update(raiz=raiz, altura=1, nregs=0, primeira=raiz, nfolhas=1, ninternos=0)
+        self._salvar_meta()
 
     def close(self) -> None:
         if self.fid is not None:
@@ -160,6 +174,38 @@ class BPlusTree(FileOrganization):
         return {"dados": self._meta["nfolhas"], "overflow": 0, "indice": self._meta["ninternos"],
                 "total": self.num_blocks(), "registros": self._meta["nregs"]}
 
+    # ------------------------------------------------------------------ chaves
+    # Chave de ordenação: o valor (UNIQUE) ou a tupla (valor, uniquificador) (NOT UNIQUE).
+    def _kmin(self, v):
+        return v if self.unique else (v, 0)
+
+    def _kmax(self, v):
+        return v if self.unique else (v, UMAX)
+
+    def _enc_k(self, k) -> bytes:
+        return self._kc.enc(k) if self.unique else self._kc.enc(k[0]) + U64.pack(k[1])
+
+    def _dec_k(self, buf, off: int):
+        v = self._kc.dec(buf, off)
+        return v if self.unique else (v, U64.unpack_from(buf, off + self._kc.tam)[0])
+
+    def _mk_entrada(self, rec: Mapping[str, Any], uniq: int = 0) -> bytes:
+        raw = self.codec.encode(rec)
+        return raw if self.unique else U64.pack(uniq) + raw
+
+    def _rec(self, e: bytes) -> dict:
+        return self.codec.decode(e if self.unique else e[8:])
+
+    def _k_entrada(self, e: bytes):
+        v = self._rec(e)[self.campo]
+        return v if self.unique else (v, U64.unpack_from(e, 0)[0])
+
+    def _chave_de(self, rec: Mapping[str, Any]):
+        v = rec.get(self.campo)
+        if v is None:
+            raise RecordError(f"chave {self.campo!r} nula")
+        return v
+
     # ------------------------------------------------------------------ nós: folha
     def _fmt_folha(self, buf: bytearray, entradas: list[bytes], nxt: int) -> None:
         """Regrava a folha inteira a partir das entradas (já em ordem de chave)."""
@@ -190,7 +236,7 @@ class BPlusTree(FileOrganization):
         return bytes(buf[off + 2: off + 2 + ln])
 
     def _chave_folha(self, buf, i: int):
-        return self.codec.decode(self._entrada(buf, i))[self.campo]
+        return self._k_entrada(self._entrada(buf, i))
 
     def _pos_folha(self, buf, chave, direita: bool = False) -> int:
         """Busca binária sobre o diretório da folha pinada: 1º índice com chave ≥ `chave`
@@ -205,6 +251,9 @@ class BPlusTree(FileOrganization):
                 hi = mid
         return lo
 
+    def _uso(self, entradas: list[bytes]) -> int:
+        return sum(len(e) + SOBRA_REG for e in entradas)
+
     # ------------------------------------------------------------------ nós: interno
     def _fmt_interno(self, buf: bytearray, chaves: list, filhos: list[int]) -> None:
         if len(filhos) != len(chaves) + 1 or len(filhos) > self._n:
@@ -213,7 +262,7 @@ class BPlusTree(FileOrganization):
         U32.pack_into(buf, TAM_CAB, filhos[0])
         off = TAM_CAB + 4
         for k, f in zip(chaves, filhos[1:]):
-            buf[off: off + self.ks] = self._kc.enc(k)
+            buf[off: off + self.ks] = self._enc_k(k)
             U32.pack_into(buf, off + self.ks, f)
             off += self.ks + 4
 
@@ -221,7 +270,7 @@ class BPlusTree(FileOrganization):
         tipo, _, n, _ = CAB.unpack_from(buf, 0)
         if tipo != TIPO_INTERNO or n + 1 > self._n:
             raise AssertionError("nó interno inválido")
-        chaves = [self._kc.dec(buf, self._off_chave(i)) for i in range(n)]
+        chaves = [self._dec_k(buf, self._off_chave(i)) for i in range(n)]
         filhos = [U32.unpack_from(buf, TAM_CAB)[0]] + [
             U32.unpack_from(buf, self._off_chave(i) + self.ks)[0] for i in range(n)]
         return chaves, filhos
@@ -238,7 +287,7 @@ class BPlusTree(FileOrganization):
         lo, hi = 0, CAB.unpack_from(buf, 0)[2]
         while lo < hi:
             mid = (lo + hi) // 2
-            if self._kc.dec(buf, self._off_chave(mid)) <= chave:
+            if self._dec_k(buf, self._off_chave(mid)) <= chave:
                 lo = mid + 1
             else:
                 hi = mid
@@ -258,25 +307,19 @@ class BPlusTree(FileOrganization):
             bno = prox
         return bno, caminho
 
-    def _folha_esquerda(self) -> int:
-        return self._meta["primeira"]
-
     # ------------------------------------------------------------------ busca
-    def _chave_de(self, rec: Mapping[str, Any]):
-        v = rec.get(self.campo)
-        if v is None:
-            raise RecordError(f"chave {self.campo!r} nula")
-        return v
-
     def find(self, campo: str, valor: Any) -> Optional[RID]:
         self._cursor = None
-        if campo == self.campo:
+        if campo == self.campo and self.unique:
             bno, _ = self._descer(valor)
             with self.bm.page(self.fid, bno, "dados") as fr:
                 i = self._pos_folha(fr.data, valor)
                 achou = i < CAB.unpack_from(fr.data, 0)[2] and self._chave_folha(fr.data, i) == valor
             return RID(bno, i) if achou else None
-        self._cursor = (rid for rid, rec in self.scan() if rec.get(campo) == valor)
+        if campo == self.campo:                    # NOT UNIQUE: duplicatas contíguas (14.3.5)
+            self._cursor = (rid for rid, _ in self._faixa(valor, valor, True, True))
+        else:
+            self._cursor = (rid for rid, rec in self.scan() if rec.get(campo) == valor)
         return self.find_next()
 
     def find_next(self) -> Optional[RID]:
@@ -294,20 +337,26 @@ class BPlusTree(FileOrganization):
             if tipo != TIPO_FOLHA or not 0 <= rid.slot < n:
                 raise KeyError(f"RID inválido: {rid}")
             raw = self._entrada(fr.data, rid.slot)
-        return self.codec.decode(raw)
+        return self._rec(raw)
 
     # ------------------------------------------------------------------ inserção
     def insert(self, rec: Mapping[str, Any]) -> RID:
-        chave = self._chave_de(rec)
-        raw = self.codec.encode(rec)
+        v = self._chave_de(rec)
+        if self.unique:
+            chave, raw = v, self._mk_entrada(rec)
+        else:
+            uniq = self._meta["prox_uniq"]
+            chave, raw = (v, uniq), self._mk_entrada(rec, uniq)
         bno, caminho = self._descer(chave)
         with self.bm.page(self.fid, bno, "dados", dirty=True) as fr:
             entradas, nxt = self._ler_folha(fr.data)
             i = self._pos_folha(fr.data, chave)
-            if i < len(entradas) and self.codec.decode(entradas[i])[self.campo] == chave:
+            if self.unique and i < len(entradas) and self._k_entrada(entradas[i]) == chave:
                 raise ChaveDuplicadaError(f"{self.campo}={chave!r}")
             entradas.insert(i, raw)
-            if sum(len(e) + SOBRA_REG for e in entradas) <= self.C:
+            if not self.unique:
+                self._meta["prox_uniq"] += 1
+            if self._uso(entradas) <= self.C:
                 self._fmt_folha(fr.data, entradas, nxt)
                 self._meta["nregs"] += 1
                 self._salvar_meta()
@@ -321,8 +370,7 @@ class BPlusTree(FileOrganization):
             self._fmt_folha(fr.data, esq, novo_bno)
         self._meta["nregs"] += 1
         self._meta["nfolhas"] += 1
-        sep = self.codec.decode(dir_[0])[self.campo]
-        self._propagar(caminho, sep, novo_bno)
+        self._propagar(caminho, self._k_entrada(dir_[0]), novo_bno)
         self._salvar_meta()
         return RID(bno, i) if i < k else RID(novo_bno, i - k)
 
@@ -364,14 +412,147 @@ class BPlusTree(FileOrganization):
         self._meta["altura"] += 1
         self._meta["ninternos"] += 1
 
+    # ------------------------------------------------------------------ remoção (E06)
+    def _localizar(self, rid: RID):
+        """(chave, caminho) do registro apontado por `rid`; KeyError se o RID for inválido. RIDs são posicionais e
+        instáveis (14.4.2): um RID antigo pode apontar para outro registro — use RIDs recém-obtidos."""
+        try:
+            with self.bm.page(self.fid, rid.bloco, "dados") as fr:
+                tipo, _, n, _ = CAB.unpack_from(fr.data, 0)
+                if tipo != TIPO_FOLHA or not 0 <= rid.slot < n:
+                    raise KeyError(f"RID inválido: {rid}")
+                chave = self._chave_folha(fr.data, rid.slot)
+        except (AssertionError, StorageError) as e:
+            raise KeyError(f"RID inválido: {rid}") from e
+        folha, caminho = self._descer(chave)
+        if folha != rid.bloco:
+            raise KeyError(f"RID obsoleto: {rid}")
+        return chave, caminho
+
+    def delete(self, rid: RID) -> None:
+        """Remove o registro; folha abaixo do mínimo → redistribuição/fusão, propagando até a raiz (14.3.3)."""
+        _, caminho = self._localizar(rid)
+        with self.bm.page(self.fid, rid.bloco, "dados", dirty=True) as fr:
+            entradas, nxt = self._ler_folha(fr.data)
+            del entradas[rid.slot]
+            self._fmt_folha(fr.data, entradas, nxt)
+            abaixo = bool(caminho) and self._uso(entradas) < self._min_folha
+        self._meta["nregs"] -= 1
+        if abaixo:
+            self._rebalancear(rid.bloco, caminho)
+        self._salvar_meta()
+
+    def _rebalancear(self, bno: int, caminho: list[tuple[int, int]]) -> None:
+        """`bno` (não-raiz) ficou abaixo do mínimo: combina com um irmão, subindo enquanto o pai ficar abaixo."""
+        folha = True
+        while caminho:
+            pbno, i = caminho.pop()
+            nfilhos = self._combinar(bno, pbno, i, folha)
+            if nfilhos is None:                      # redistribuição: o pai não mudou de tamanho
+                return
+            if not caminho:                          # pai é a raiz
+                if nfilhos == 1:
+                    self._encolher_raiz()
+                return
+            if nfilhos >= self._min_filhos:
+                return
+            bno, folha = pbno, False
+
+    def _combinar(self, bno: int, pbno: int, i: int, folha: bool) -> Optional[int]:
+        """Funde `bno` (filho i do pai `pbno`) com um irmão se couber num nó; senão redistribui.
+        Devolve o nº de filhos do pai após a fusão, ou None se foi redistribuição."""
+        area = "dados" if folha else "indice"
+        fundiu = False
+        with self.bm.page(self.fid, pbno, "indice", dirty=True) as fp:
+            chaves, filhos = self._ler_interno(fp.data)
+            ci = i - 1 if i > 0 else 0               # par (ci, ci+1) separado por chaves[ci]
+            lb, rb = filhos[ci], filhos[ci + 1]
+            with self.bm.page(self.fid, lb, area, dirty=True) as fl, \
+                    self.bm.page(self.fid, rb, area, dirty=True) as fr:
+                if folha:
+                    el, _ = self._ler_folha(fl.data)
+                    er, nr = self._ler_folha(fr.data)
+                    comb = el + er
+                    if self._uso(comb) <= self.C:
+                        self._fmt_folha(fl.data, comb, nr)
+                        fundiu = True
+                    else:
+                        k = self._ponto_split(comb)
+                        self._fmt_folha(fl.data, comb[:k], rb)
+                        self._fmt_folha(fr.data, comb[k:], nr)
+                        chaves[ci] = self._k_entrada(comb[k])
+                else:
+                    kl, cl = self._ler_interno(fl.data)
+                    kr, cr = self._ler_interno(fr.data)
+                    ck, cc = kl + [chaves[ci]] + kr, cl + cr
+                    if len(cc) <= self._n:
+                        self._fmt_interno(fl.data, ck, cc)
+                        fundiu = True
+                    else:
+                        k = len(cc) // 2             # ambos os lados ≥ ⌈n/2⌉ (len(cc) ≥ n+1)
+                        self._fmt_interno(fl.data, ck[:k - 1], cc[:k])
+                        self._fmt_interno(fr.data, ck[k:], cc[k:])
+                        chaves[ci] = ck[k - 1]
+            if fundiu:
+                del chaves[ci]
+                del filhos[ci + 1]
+            self._fmt_interno(fp.data, chaves, filhos)
+        if not fundiu:
+            return None
+        self.bm.free_page(self.fid, rb)
+        self._meta["nfolhas" if folha else "ninternos"] -= 1
+        return len(filhos)
+
+    def _encolher_raiz(self) -> None:
+        """Raiz interna com um único filho: o filho vira a raiz e a altura diminui (14.3.3)."""
+        raiz = self._meta["raiz"]
+        with self.bm.page(self.fid, raiz, "indice") as fr:
+            _, filhos = self._ler_interno(fr.data)
+        self.bm.free_page(self.fid, raiz)
+        self._meta["raiz"] = filhos[0]
+        self._meta["altura"] -= 1
+        self._meta["ninternos"] -= 1
+
+    def update(self, rid: RID, rec: Mapping[str, Any]) -> RID:
+        """Mesma chave e cabe na folha → troca no lugar (RID igual); senão remove + insere (RID novo)."""
+        novo_v = self._chave_de(rec)
+        chave, caminho = self._localizar(rid)
+        antigo_v = chave if self.unique else chave[0]
+        cabe = abaixo = False
+        if novo_v == antigo_v:
+            with self.bm.page(self.fid, rid.bloco, "dados", dirty=True) as fr:
+                entradas, nxt = self._ler_folha(fr.data)
+                entradas[rid.slot] = self._mk_entrada(rec, 0 if self.unique else chave[1])
+                uso = self._uso(entradas)
+                if uso <= self.C:
+                    self._fmt_folha(fr.data, entradas, nxt)
+                    abaixo = bool(caminho) and uso < self._min_folha
+                    cabe = True
+            if cabe:
+                if abaixo:                           # registro encolheu: folha pode ter caído abaixo do mínimo
+                    self._rebalancear(rid.bloco, caminho)
+                    self._salvar_meta()
+                    return self._achar_exato(chave)
+                return rid
+        elif self.unique and self.find(self.campo, novo_v) is not None:
+            raise ChaveDuplicadaError(f"{self.campo}={novo_v!r}")
+        self.delete(rid)
+        return self.insert(rec)
+
+    def _achar_exato(self, chave) -> RID:
+        bno, _ = self._descer(chave)
+        with self.bm.page(self.fid, bno, "dados") as fr:
+            i = self._pos_folha(fr.data, chave)
+        return RID(bno, i)
+
     # ------------------------------------------------------------------ varreduras
     def scan(self, toss: bool = False) -> Iterator[tuple[RID, dict]]:
-        for bno, recs in self._folhas(self._folha_esquerda(), 0, toss):
+        for bno, recs in self._folhas(self._meta["primeira"], 0, toss):
             for i, r in enumerate(recs):
                 yield RID(bno, i), r
 
     def scan_blocos(self, toss: bool = False) -> Iterator[list[dict]]:
-        for _, recs in self._folhas(self._folha_esquerda(), 0, toss):
+        for _, recs in self._folhas(self._meta["primeira"], 0, toss):
             yield recs
 
     def _folhas(self, bno: int, i0: int, toss: bool) -> Iterator[tuple[int, list[dict]]]:
@@ -379,25 +560,27 @@ class BPlusTree(FileOrganization):
         while bno:
             with self.bm.page(self.fid, bno, "dados", toss=toss) as fr:
                 entradas, nxt = self._ler_folha(fr.data)
-            yield bno, [self.codec.decode(e) for e in entradas[i0:]]
+            yield bno, [self._rec(e) for e in entradas[i0:]]
             bno, i0 = nxt, 0
 
     def _faixa(self, lo, hi, incl_lo: bool, incl_hi: bool) -> Iterator[tuple[RID, dict]]:
         if lo is None:
-            bno, i0 = self._folha_esquerda(), 0
+            bno, i0 = self._meta["primeira"], 0
         else:
-            bno, _ = self._descer(lo)
+            k_lo = self._kmin(lo) if incl_lo else self._kmax(lo)
+            bno, _ = self._descer(k_lo)
             with self.bm.page(self.fid, bno, "dados") as fr:
-                i0 = self._pos_folha(fr.data, lo, direita=not incl_lo)
+                i0 = self._pos_folha(fr.data, k_lo, direita=not incl_lo)
+        k_hi = None if hi is None else (self._kmax(hi) if incl_hi else self._kmin(hi))
         while bno:
             with self.bm.page(self.fid, bno, "dados") as fr:
                 entradas, nxt = self._ler_folha(fr.data)
             for i in range(i0, len(entradas)):
-                rec = self.codec.decode(entradas[i])
-                k = rec[self.campo]
-                if hi is not None and (k > hi or (k == hi and not incl_hi)):
-                    return
-                yield RID(bno, i), rec
+                if k_hi is not None:
+                    k = self._k_entrada(entradas[i])
+                    if k > k_hi or (k == k_hi and not incl_hi):
+                        return
+                yield RID(bno, i), self._rec(entradas[i])
             bno, i0 = nxt, 0
 
     def find_ordered(self, campo: str, lo: Any = None, hi: Any = None, incl_lo: bool = True,
@@ -417,14 +600,139 @@ class BPlusTree(FileOrganization):
             return self._faixa(None, valor, True, op == "<=")
         return self._faixa(valor, None, op == ">=", True)
 
+    # ------------------------------------------------------------------ bulk loading (E06)
+    def bulk_load(self, registros_ordenados, fill: float = 0.8) -> None:
+        """Constrói a árvore bottom-up a partir de registros já ordenados por `campo` (14.5).
+
+        Só em árvore vazia. Folhas preenchidas até `fill` (em bytes; mínimo exigido pelas invariantes),
+        encadeadas; níveis internos criados de baixo para cima até a raiz. As duas últimas folhas/nós de
+        cada nível são reequilibrados para respeitar a ocupação mínima. Memória: ≤ 3 folhas por vez."""
+        if self._meta["nregs"] or self._meta["altura"] != 1:
+            raise ValueError("bulk_load exige árvore vazia (use reorganize())")
+        if not 0 < fill <= 1:
+            raise ValueError("fill deve estar em (0, 1]")
+        alvo = min(self.C, max(int(fill * self.C), (self.C + self.m) // 2))
+        raiz_vazia = self._meta["raiz"]
+        folhas: list[tuple[int, Any]] = []           # (bloco, menor chave) em ordem
+        a = b = None                                  # janela de 2 folhas pendentes: (bno, entradas)
+        cur: list[bytes] = []
+        uso = 0
+        n = 0
+        ultima = None
+
+        def aloca() -> int:
+            with self.bm.fresh_page(self.fid, "dados") as fr:
+                return fr.bno
+
+        def grava(folha, nxt: int) -> None:
+            bno, ents = folha
+            with self.bm.page(self.fid, bno, "dados", dirty=True) as fr:
+                self._fmt_folha(fr.data, ents, nxt)
+            folhas.append((bno, self._k_entrada(ents[0])))
+
+        def fecha(ents: list[bytes]) -> None:
+            nonlocal a, b
+            novo = (aloca(), ents)
+            if a is not None:
+                grava(a, b[0])                        # a.próxima = b
+            a, b = b, novo
+
+        for rec in registros_ordenados:
+            v = self._chave_de(rec)
+            if self.unique:
+                k, e = v, self._mk_entrada(rec)
+            else:
+                k, e = (v, self._meta["prox_uniq"] + n), self._mk_entrada(rec, self._meta["prox_uniq"] + n)
+            if ultima is not None and (k < ultima or (self.unique and k == ultima)):
+                raise ValueError(f"bulk_load: registros fora de ordem/duplicados em {self.campo}={v!r}")
+            ultima = k
+            n += 1
+            tam = len(e) + SOBRA_REG
+            if cur and uso + tam > alvo:
+                fecha(cur)
+                cur, uso = [], 0
+            cur.append(e)
+            uso += tam
+        if n == 0:
+            return
+        fecha(cur)
+        # reequilibra as duas últimas folhas se a última ficou abaixo do mínimo
+        if a is not None and self._uso(b[1]) < self._min_folha:
+            comb = a[1] + b[1]
+            if self._uso(comb) <= self.C:
+                self.bm.free_page(self.fid, b[0])
+                a, b = (a[0], comb), None
+            else:
+                k = self._ponto_split(comb)
+                a, b = (a[0], comb[:k]), (b[0], comb[k:])
+        if a is not None:
+            grava(a, b[0] if b else 0)
+        if b is not None:
+            grava(b, 0)
+        # --- níveis internos
+        self.bm.free_page(self.fid, raiz_vazia)       # a folha vazia original sai (a 1ª folha nova é `primeira`)
+        nivel = folhas
+        internos = 0
+        altura = 1
+        while len(nivel) > 1:
+            cap = max(self._min_filhos, min(self._n, -(-int(fill * self._n * 1000) // 1000)))
+            grupos = [nivel[j:j + cap] for j in range(0, len(nivel), cap)]
+            if len(grupos) > 1 and len(grupos[-1]) < self._min_filhos:
+                comb = grupos[-2] + grupos[-1]
+                if len(comb) <= self._n:
+                    grupos[-2:] = [comb]
+                else:
+                    k = len(comb) // 2
+                    grupos[-2:] = [comb[:k], comb[k:]]
+            prox = []
+            for g in grupos:
+                with self.bm.fresh_page(self.fid, "indice") as fr:
+                    self._fmt_interno(fr.data, [c for _, c in g[1:]], [bno for bno, _ in g])
+                    prox.append((fr.bno, g[0][1]))
+            internos += len(prox)
+            nivel = prox
+            altura += 1
+        self._meta.update(raiz=nivel[0][0], altura=altura, nregs=n, primeira=folhas[0][0],
+                          nfolhas=len(folhas), ninternos=internos)
+        if not self.unique:
+            self._meta["prox_uniq"] += n
+        self._salvar_meta()
+
+    def _limpar(self) -> None:
+        """Libera todos os nós e recria a raiz folha vazia (preserva o contador de uniquificadores)."""
+        def libera(bno: int, nivel: int) -> None:
+            if nivel < self._meta["altura"]:
+                with self.bm.page(self.fid, bno, "indice") as fr:
+                    _, filhos = self._ler_interno(fr.data)
+                for f in filhos:
+                    libera(f, nivel + 1)
+            self.bm.free_page(self.fid, bno)
+        libera(self._meta["raiz"], 1)
+        self._nova_raiz_vazia()
+
+    def reorganize(self) -> None:
+        """Reconstrói a árvore por bulk load (ocupação alta, folhas contíguas): copia em streaming para
+        uma árvore temporária, limpa esta e recarrega a partir da temporária."""
+        tmp = BPlusTree(self.bm, f"{self.nome}.reorg", self.esquema, self.campo, unique=self.unique,
+                        codec=self.codec)
+        if self.bm.exists(tmp.nome):                 # sobra de uma reorganização interrompida
+            self.bm.delete(tmp.nome)
+        tmp.open()
+        try:
+            tmp.bulk_load((r for _, r in self.scan()))
+            self._limpar()
+            self.bulk_load((r for _, r in tmp.scan()))
+        finally:
+            tmp.close()
+            self.bm.delete(tmp.nome)
+        self._cursor = None
+
     # ------------------------------------------------------------------ invariantes
     def check_invariants(self) -> None:
         """AssertionError se: ordem, ocupação mínima (exceto raiz), folhas na mesma profundidade,
         encadeamento completo/ordenado ou contagem de registros falharem."""
         folhas: list[int] = []
         contagem = [0, 0, 0]               # registros, folhas, internos
-        min_folha = (self.C - self.m) // 2
-        min_filhos = (self._n + 1) // 2
 
         def falha(msg: str):
             raise AssertionError(msg)
@@ -434,25 +742,25 @@ class BPlusTree(FileOrganization):
             if nivel == self._meta["altura"]:                       # folha
                 with self.bm.page(self.fid, bno, "dados") as fr:
                     entradas, _ = self._ler_folha(fr.data)
-                ks = [self.codec.decode(e)[self.campo] for e in entradas]
-                if ks != sorted(ks) or len(set(ks)) != len(ks):
+                ks = [self._k_entrada(e) for e in entradas]
+                if any(a >= b for a, b in zip(ks, ks[1:])):
                     falha(f"folha {bno}: chaves fora de ordem/duplicadas")
                 if ks and ((lo is not None and ks[0] < lo) or (hi is not None and ks[-1] >= hi)):
                     falha(f"folha {bno}: chave fora do intervalo do pai")
-                uso = sum(len(e) + SOBRA_REG for e in entradas)
+                uso = self._uso(entradas)
                 if uso > self.C:
                     falha(f"folha {bno}: estourou o bloco")
-                if not ehraiz and (not entradas or uso < min_folha):
-                    falha(f"folha {bno}: ocupação mínima violada ({uso} B < {min_folha} B)")
+                if not ehraiz and (not entradas or uso < self._min_folha):
+                    falha(f"folha {bno}: ocupação mínima violada ({uso} B < {self._min_folha} B)")
                 folhas.append(bno)
                 contagem[0] += len(entradas)
                 contagem[1] += 1
                 return
             with self.bm.page(self.fid, bno, "indice") as fr:
                 chaves, filhos = self._ler_interno(fr.data)
-            if chaves != sorted(chaves) or len(set(chaves)) != len(chaves):
+            if any(a >= b for a, b in zip(chaves, chaves[1:])):
                 falha(f"interno {bno}: chaves fora de ordem")
-            if len(filhos) < (2 if ehraiz else min_filhos):
+            if len(filhos) < (2 if ehraiz else self._min_filhos):
                 falha(f"interno {bno}: ocupação mínima violada ({len(filhos)} ponteiros)")
             if chaves and ((lo is not None and chaves[0] < lo) or (hi is not None and chaves[-1] >= hi)):
                 falha(f"interno {bno}: chave fora do intervalo do pai")
@@ -476,17 +784,3 @@ class BPlusTree(FileOrganization):
             falha(f"contagem de registros: {contagem[0]} nas folhas × {self._meta['nregs']} no cabeçalho")
         if contagem[1] != self._meta["nfolhas"] or contagem[2] != self._meta["ninternos"]:
             falha("contagem de nós diverge do cabeçalho")
-
-    # ------------------------------------------------------------------ E06 (pendente)
-    def bulk_load(self, registros_ordenados, fill: float = 0.8) -> None:
-        """Constrói a árvore bottom-up a partir de registros já ordenados por `campo` (14.5)."""
-        raise NotImplementedError("M3/E06")
-
-    def delete(self, rid: RID) -> None:
-        raise NotImplementedError("M3/E06")
-
-    def update(self, rid: RID, rec: Mapping[str, Any]) -> RID:
-        raise NotImplementedError("M3/E06")
-
-    def reorganize(self) -> None:
-        raise NotImplementedError("M3/E06")
