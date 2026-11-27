@@ -31,7 +31,6 @@ from __future__ import annotations
 
 import datetime
 import struct
-from bisect import bisect_left, bisect_right
 from typing import Any, Iterator, Mapping, Optional
 
 from src.access.contracts import Esquema, FileOrganization, RecordCodecAPI, padroes
