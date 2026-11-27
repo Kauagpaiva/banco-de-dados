@@ -153,13 +153,29 @@ def _perm_cpf(seed: int) -> "_Permutacao":
 
 
 # --------------------------------------------------------------------------- CR
+def casas_cr(cfg, n: int) -> int:
+    """Casas decimais do CR: max(casas_min, ceil(log10 n)).
+
+    Postos vizinhos distam ≥ (Φ(max)−Φ(min)) / (n·f_max) no CR (f_max = densidade máxima da
+    normal truncada, ≤ 1/(σ√2π)). Exigindo (Φ(max)−Φ(min))·σ·√2π > 1, isso é > 1/n ≥ 10^-casas,
+    logo o arredondamento nunca cria empate e os limiares de `limiares_cr` são exatos para
+    qualquer volume.
+    """
+    p = _params(cfg)["cr"]
+    nd = NormalDist(float(p["media"]), float(p["desvio"]))
+    if (nd.cdf(float(p["max"])) - nd.cdf(float(p["min"]))) * nd.stdev * math.sqrt(2 * math.pi) <= 1:
+        raise ConfigError("datagen.cr: desvio pequeno demais para o intervalo [min, max] "
+                          "(postos vizinhos poderiam empatar após o arredondamento)")
+    return max(int(p["casas_min"]), math.ceil(math.log10(max(n, 2))))
+
+
 def _cr_de_posto(cfg, r: int, n: int) -> float:
-    """CR do aluno de posto r ∈ [0, n): quantil (r+½)/n da normal truncada, 4 casas."""
+    """CR do aluno de posto r ∈ [0, n): quantil (r+½)/n da normal truncada."""
     p = _params(cfg)["cr"]
     nd = NormalDist(float(p["media"]), float(p["desvio"]))
     lo, hi = nd.cdf(float(p["min"])), nd.cdf(float(p["max"]))
     u = lo + (r + 0.5) / n * (hi - lo)
-    return round(min(max(nd.inv_cdf(u), float(p["min"])), float(p["max"])), 4)
+    return round(min(max(nd.inv_cdf(u), float(p["min"])), float(p["max"])), casas_cr(cfg, n))
 
 
 def limiares_cr(cfg) -> dict[str, float]:
@@ -167,7 +183,7 @@ def limiares_cr(cfg) -> dict[str, float]:
 
     Como o CR é função monótona do posto, os limiares são pontos médios entre postos vizinhos:
     `CR > x1` pega exatamente os k1 = round(frac_x1·n) maiores e `CR < x50` os k50 menores
-    (salvo empate após o arredondamento a 4 casas, que é verificado no teste).
+    (sem empates: ver `casas_cr`).
     """
     n = _volume(cfg, "Aluno")
     p = _params(cfg)["cr"]
@@ -177,7 +193,8 @@ def limiares_cr(cfg) -> dict[str, float]:
     k50 = min(max(round(float(p["frac_x50"]) * n), 1), n - 1)
     x1 = (_cr_de_posto(cfg, n - k1 - 1, n) + _cr_de_posto(cfg, n - k1, n)) / 2
     x50 = (_cr_de_posto(cfg, k50 - 1, n) + _cr_de_posto(cfg, k50, n)) / 2
-    return {"x1": round(x1, 5), "x50": round(x50, 5)}
+    casas = casas_cr(cfg, n) + 1  # ponto médio de dois valores com `casas` casas: exato com +1
+    return {"x1": round(x1, casas), "x50": round(x50, casas)}
 
 
 # --------------------------------------------------------------------------- auxiliares de valor

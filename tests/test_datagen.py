@@ -124,6 +124,24 @@ def test_seletividade_cr(perfil):
     assert lim["x50"] < lim["x1"]
 
 
+@pytest.mark.parametrize("n", [50003, 224923])
+def test_limiares_exatos_sem_empate_na_fronteira(n):
+    """Regressão: com CR fixo em 4 casas, esses volumes empatavam os postos da fronteira
+    (x50 em n=50003, x1 em n=224923) e a seletividade deixava de ser exata."""
+    cfg = load_config("completo", {"perfis": {"completo": {"Aluno": n}}})
+    lim = datagen.limiares_cr(cfg)
+    k1, k50 = round(0.01 * n), round(0.5 * n)
+    cr = lambda r: datagen._cr_de_posto(cfg, r, n)  # noqa: E731
+    assert cr(n - k1 - 1) < lim["x1"] < cr(n - k1)
+    assert cr(k50 - 1) < lim["x50"] < cr(k50)
+
+
+def test_desvio_pequeno_demais_e_erro():
+    cfg = load_config("teste", {"datagen": {"cr": {"desvio": 0.1}}})
+    with pytest.raises(ConfigError):
+        datagen.limiares_cr(cfg)
+
+
 def test_cr_e_distribuicao_nao_degenerada(base):
     crs = [r["CR"] for r in base["Aluno"]]
     assert len(set(crs)) > 0.9 * len(crs)

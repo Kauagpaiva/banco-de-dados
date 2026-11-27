@@ -7,6 +7,7 @@ datagen:
     max: 10.0
     frac_x1: 0.01             # CR > x1  -> exatamente round(frac_x1 * nr) alunos
     frac_x50: 0.50            # CR < x50 -> exatamente round(frac_x50 * nr) alunos
+    casas_min: 4              # casas decimais do CR = max(casas_min, ceil(log10 nr)) -> sem empates
   turmas_por_professor: 4     # n_professores = ceil(nr(Turma) / 4)
   frac_sem_orientador: 0.10   # Aluno.prof_orientador = NULL
   frac_media_nula: 0.05       # Inscricao.media_final = NULL (aluno ainda cursando)
