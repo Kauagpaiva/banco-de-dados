@@ -45,3 +45,36 @@ def test_join_com_memoria_minima_e_chaves_concentradas(
         assert metricas["tuplas_saida"] == TOTAL
     finally:
         resultado.close()
+
+
+@pytest.mark.stress
+@pytest.mark.parametrize(
+    "join_fn",
+    [hash_join, sort_merge_join],
+    ids=["hash", "sort-merge"],
+)
+def test_join_com_100_porcento_de_chaves_duplicadas(
+    ctx, tabela, join_fn
+):
+    alunos = list(registros_fake(ALUNO, TOTAL, seed=81))
+    inscricoes = list(registros_fake(INSCRICAO, TOTAL, seed=82))
+
+    for i, registro in enumerate(inscricoes):
+        registro["DRE"] = 1
+        registro["numero_turma"] = i + 1
+
+    rel_inscricoes = tabela(
+        "Inscricao_Aluno_Turma", registros=inscricoes
+    )
+    rel_alunos = tabela("Aluno", registros=alunos)
+
+    resultado, metricas = join_fn(
+        ctx, rel_inscricoes, rel_alunos, COND, M=3
+    )
+
+    try:
+        tuplas = list(resultado)
+        assert len(tuplas) == TOTAL
+        assert metricas["tuplas_saida"] == TOTAL
+    finally:
+        resultado.close()
