@@ -51,5 +51,32 @@ def test_bplus_200_mil_insercoes_aleatorias(bm, page_impl, codec):
             assert rid is not None
             assert arvore.read(rid)["numero"] == chave
 
+                # Remove 20 mil registros em ordem aleatória.
+        removidos = set(random.Random(456).sample(
+            range(1, total + 1), 20_000
+        ))
+
+        for i, chave in enumerate(removidos, start=1):
+            rid = arvore.find("numero", chave)
+            assert rid is not None
+
+            arvore.delete(rid)
+
+            if i % 1_000 == 0:
+                arvore.check_invariants()
+
+        arvore.check_invariants()
+        assert arvore.num_registros() == total - len(removidos)
+
+        # Confere se todas as chaves removidas desapareceram.
+        for chave in removidos:
+            assert arvore.find("numero", chave) is None
+
+        # Confere se os registros restantes continuam ordenados.
+        restantes = [registro["numero"] for _, registro in arvore.scan()]
+        esperados = sorted(set(range(1, total + 1)) - removidos)
+
+        assert restantes == esperados
+
     finally:
         arvore.close()
