@@ -1,0 +1,41 @@
+# Equijoin em campo NOT UNIQUE que não dita a organização primária (enunciado §5.1.3, opcional):
+# Turma.professor = Aluno.prof_orientador (N:M; nulos de prof_orientador não casam).
+# Organizações primárias fixas: Turma B+(numero), Aluno B+(DRE). Casos:
+#   a) nenhum índice   d') B+ sec.(NU) só em Aluno   e) B+ sec.(NU) em ambos
+# Política: MRU no BNL, LRU nos demais.
+descricao: Equijoin NOT UNIQUE (professor) Turma x Aluno
+M: 10
+por_perfil:
+  medio:
+    M: 32
+  completo:
+    M: 128
+    overrides:
+      buffer.areas: {catalogo: 8, indice: 64, dados: 56, trabalho: 128}
+
+metodos:
+  Turma_bplus:      {org: bplus, campo: numero}
+  Turma_bplus_prof: {org: bplus, campo: numero, indices: [{campo: professor, tipo: bplus}]}
+  Aluno_bplus:      {org: bplus, campo: DRE}
+  Aluno_bplus_prof: {org: bplus, campo: DRE, indices: [{campo: prof_orientador, tipo: bplus}]}
+
+pontos:
+  - operacao: juncao
+    r: {tabela: Turma, campo: professor}
+    s: {tabela: Aluno, campo: prof_orientador}
+    alternativas:
+      caso:
+        - {caso: a, r: {metodo: Turma_bplus},      s: {metodo: Aluno_bplus}}
+        - {caso: d, r: {metodo: Turma_bplus},      s: {metodo: Aluno_bplus_prof}}
+        - {caso: e, r: {metodo: Turma_bplus_prof}, s: {metodo: Aluno_bplus_prof}}
+      algoritmo:
+        - {algoritmo: bnl, politica: MRU}
+        - {algoritmo: smj}
+        - {algoritmo: hash}
+  - operacao: juncao
+    algoritmo: inl
+    r: {tabela: Turma, campo: professor}
+    s: {tabela: Aluno, campo: prof_orientador}
+    alternativas:
+      - {caso: d, r: {metodo: Turma_bplus},      s: {metodo: Aluno_bplus_prof}}
+      - {caso: e, r: {metodo: Turma_bplus_prof}, s: {metodo: Aluno_bplus_prof}}

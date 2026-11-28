@@ -1,0 +1,45 @@
+# Políticas de substituição (enunciado §6.2): LRU, MRU, FIFO e Clock nos casos mais sensíveis.
+#  1) BNL maior⋈maior (a interna é varrida de novo para cada bloco da externa: "scan repetido");
+#  2) INL com B+ primária (sondagens aleatórias nas folhas/dados; raiz e níveis altos quentes);
+#  3) Seleção A6 50% via B+ secundária (blocos de dados relidos em ordem aleatória).
+# Em `teste` a área 'dados' é reduzida para 24 páginas (as tabelas grandes têm 36–52 blocos),
+# senão tudo caberia no buffer e a política não faria diferença. Este experimento é o que
+# justifica as políticas escolhidas nos demais (MRU no BNL; LRU no resto).
+descricao: Hit rate e transferências por política de substituição
+M: 10
+por_perfil:
+  teste:
+    overrides:
+      buffer.total_pages: 106
+      buffer.areas: {catalogo: 8, indice: 64, dados: 24, trabalho: 10}
+  medio:
+    M: 32
+  completo:
+    M: 128
+    overrides:
+      buffer.areas: {catalogo: 8, indice: 64, dados: 56, trabalho: 128}
+
+metodos:
+  heap:             {org: heap}
+  Aluno_bplus:      {org: bplus, campo: DRE}
+  heap_bplusidx_CR: {org: heap, indices: [{campo: CR, tipo: bplus, unique: false}]}
+
+pontos:
+  - operacao: juncao
+    algoritmo: bnl
+    caso: a
+    r: {tabela: Aluno, campo: DRE, metodo: heap}
+    s: {tabela: Inscricao_Aluno_Turma, campo: DRE, metodo: heap}
+    variar: {politica: [LRU, MRU, FIFO, CLOCK]}
+  - operacao: juncao
+    algoritmo: inl
+    caso: b
+    r: {tabela: Inscricao_Aluno_Turma, campo: DRE, metodo: heap}
+    s: {tabela: Aluno, campo: DRE, metodo: Aluno_bplus}
+    variar: {politica: [LRU, MRU, FIFO, CLOCK]}
+  - operacao: selecao
+    tabela: Aluno
+    metodo: heap_bplusidx_CR
+    caminho: A6
+    predicado: {campo: CR, op: "<", valor: $cr_x50}
+    variar: {politica: [LRU, MRU, FIFO, CLOCK]}

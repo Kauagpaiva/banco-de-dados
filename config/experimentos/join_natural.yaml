@@ -1,0 +1,105 @@
+# NATURAL JOIN mestre-detalhe PK = FK (enunciado §5.1.1), casos a–e × 3 tamanhos × {BNL, SMJ, hash}
+# + INL (interna = mestre, que tem estrutura na PK nos casos b–e).
+# Tamanhos (§5.1 config. 2; "menor" = cabe em M, calibração em docs/decisoes/M9.md):
+#   menor⋈menor  Curso ⋈ Disciplina     (Curso.codigo = Disciplina.cod_curso)
+#   menor⋈maior  Curso ⋈ Aluno          (Curso.codigo = Aluno.cod_curso)
+#   maior⋈maior  Aluno ⋈ Inscricao      (Aluno.DRE = Inscricao.DRE)
+# Casos (§5.1 config. 1), r = mestre, s = detalhe:
+#   a) heap / heap   b) B+(PK) / heap   c) B+(PK) / B+(FK, NU)
+#   d) B+(PK) / heap + B+ sec.(FK, NU)  e) heap + hash sec.(PK) / heap + B+ sec.(FK, NU)
+# Política (§6.2): MRU para o BNL (a interna é relida inteira a cada bloco da externa: MRU mantém
+# o prefixo dela no buffer — ver politicas_buffer.yaml); LRU para SMJ, hash e INL.
+descricao: Natural join PK-FK, casos a-e x 3 tamanhos x algoritmos
+M: 10
+por_perfil:
+  medio:
+    M: 32
+  completo:
+    M: 128
+    overrides:
+      buffer.areas: {catalogo: 8, indice: 64, dados: 56, trabalho: 128}
+
+metodos:
+  heap: {org: heap}
+  # mestres
+  Curso_bplus:    {org: bplus, campo: codigo}
+  Curso_hashidx:  {org: heap, indices: [{campo: codigo, tipo: hash, unique: true}]}
+  Aluno_bplus:    {org: bplus, campo: DRE}
+  Aluno_hashidx:  {org: heap, indices: [{campo: DRE, tipo: hash, unique: true}]}
+  # detalhes
+  Disc_bplus_fk:  {org: bplus, campo: cod_curso, unique: false}
+  Disc_idx_fk:    {org: heap, indices: [{campo: cod_curso, tipo: bplus}]}
+  AlunoC_bplus_fk: {org: bplus, campo: cod_curso, unique: false}
+  AlunoC_idx_fk:  {org: heap, indices: [{campo: cod_curso, tipo: bplus}]}
+  Insc_bplus_fk:  {org: bplus, campo: DRE, unique: false}
+  Insc_idx_fk:    {org: heap, indices: [{campo: DRE, tipo: bplus}]}
+
+_algoritmos: &algoritmos
+  - {algoritmo: bnl, politica: MRU}
+  - {algoritmo: smj}
+  - {algoritmo: hash}
+
+pontos:
+  # ------------------------------------------------------------------ menor ⋈ menor
+  - operacao: juncao
+    r: {tabela: Curso, campo: codigo}
+    s: {tabela: Disciplina, campo: cod_curso}
+    alternativas:
+      caso:
+        - {caso: a, r: {metodo: heap},          s: {metodo: heap}}
+        - {caso: b, r: {metodo: Curso_bplus},   s: {metodo: heap}}
+        - {caso: c, r: {metodo: Curso_bplus},   s: {metodo: Disc_bplus_fk}}
+        - {caso: d, r: {metodo: Curso_bplus},   s: {metodo: Disc_idx_fk}}
+        - {caso: e, r: {metodo: Curso_hashidx}, s: {metodo: Disc_idx_fk}}
+      algoritmo: *algoritmos
+  - operacao: juncao            # INL: externa = detalhe, interna = mestre (estrutura na PK)
+    algoritmo: inl
+    r: {tabela: Disciplina, campo: cod_curso}
+    s: {tabela: Curso, campo: codigo}
+    alternativas:
+      - {caso: b, s: {metodo: Curso_bplus},   r: {metodo: heap}}
+      - {caso: c, s: {metodo: Curso_bplus},   r: {metodo: Disc_bplus_fk}}
+      - {caso: d, s: {metodo: Curso_bplus},   r: {metodo: Disc_idx_fk}}
+      - {caso: e, s: {metodo: Curso_hashidx}, r: {metodo: Disc_idx_fk}}
+  # ------------------------------------------------------------------ menor ⋈ maior
+  - operacao: juncao
+    r: {tabela: Curso, campo: codigo}
+    s: {tabela: Aluno, campo: cod_curso}
+    alternativas:
+      caso:
+        - {caso: a, r: {metodo: heap},          s: {metodo: heap}}
+        - {caso: b, r: {metodo: Curso_bplus},   s: {metodo: heap}}
+        - {caso: c, r: {metodo: Curso_bplus},   s: {metodo: AlunoC_bplus_fk}}
+        - {caso: d, r: {metodo: Curso_bplus},   s: {metodo: AlunoC_idx_fk}}
+        - {caso: e, r: {metodo: Curso_hashidx}, s: {metodo: AlunoC_idx_fk}}
+      algoritmo: *algoritmos
+  - operacao: juncao
+    algoritmo: inl
+    r: {tabela: Aluno, campo: cod_curso}
+    s: {tabela: Curso, campo: codigo}
+    alternativas:
+      - {caso: b, s: {metodo: Curso_bplus},   r: {metodo: heap}}
+      - {caso: c, s: {metodo: Curso_bplus},   r: {metodo: AlunoC_bplus_fk}}
+      - {caso: d, s: {metodo: Curso_bplus},   r: {metodo: AlunoC_idx_fk}}
+      - {caso: e, s: {metodo: Curso_hashidx}, r: {metodo: AlunoC_idx_fk}}
+  # ------------------------------------------------------------------ maior ⋈ maior
+  - operacao: juncao
+    r: {tabela: Aluno, campo: DRE}
+    s: {tabela: Inscricao_Aluno_Turma, campo: DRE}
+    alternativas:
+      caso:
+        - {caso: a, r: {metodo: heap},          s: {metodo: heap}}
+        - {caso: b, r: {metodo: Aluno_bplus},   s: {metodo: heap}}
+        - {caso: c, r: {metodo: Aluno_bplus},   s: {metodo: Insc_bplus_fk}}
+        - {caso: d, r: {metodo: Aluno_bplus},   s: {metodo: Insc_idx_fk}}
+        - {caso: e, r: {metodo: Aluno_hashidx}, s: {metodo: Insc_idx_fk}}
+      algoritmo: *algoritmos
+  - operacao: juncao
+    algoritmo: inl
+    r: {tabela: Inscricao_Aluno_Turma, campo: DRE}
+    s: {tabela: Aluno, campo: DRE}
+    alternativas:
+      - {caso: b, s: {metodo: Aluno_bplus},   r: {metodo: heap}}
+      - {caso: c, s: {metodo: Aluno_bplus},   r: {metodo: Insc_bplus_fk}}
+      - {caso: d, s: {metodo: Aluno_bplus},   r: {metodo: Insc_idx_fk}}
+      - {caso: e, s: {metodo: Aluno_hashidx}, r: {metodo: Insc_idx_fk}}

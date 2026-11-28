@@ -1,0 +1,38 @@
+# Seleção por igualdade em campo UNIQUE (enunciado §5.2.1): Aluno.DRE = <aluno do meio>.
+# Casos (§5.2 config. 1): a) sem método de acesso; b) campo da organização primária;
+# c) índice secundário. Política: LRU (consulta pontual; cold start a cada repetição).
+#
+# ---- Formato dos arquivos de experimento (lido por src/bench/runner.py) -------------------
+# nome, descricao           rótulos (nome padrão = nome do arquivo)
+# overrides                 overrides de config (load_config), ex.: {"buffer.policy": "MRU"}
+# por_perfil.<perfil>       chaves que valem só naquele perfil (mescladas por cima)
+# politica                  política-base (str = todas as áreas; {area: pol} = por área)
+# M                         memória de trabalho das junções (padrão: área 'trabalho')
+# repeticoes, comparar_sqlite, manutencao.frac   (padrões em _base.yaml)
+# metodos.<nome>            {org: heap|bplus|hash, campo, unique, indices: [{campo, tipo, unique, clustering}]}
+# pontos[]                  operacao: selecao | juncao | manutencao (+ campos da operação)
+#   variar: {chave.pontuada: [valores]}       produto cartesiano
+#   alternativas: [ {...}, ... ]  ou {grupo: [ {...} ]}   mapeamentos parciais mesclados no ponto
+# Valores simbólicos: $dre_meio, $cpf_meio, $cr_x1, $cr_x50, $dre_frac:<f>
+# --------------------------------------------------------------------------------------------
+descricao: Seleção pontual por chave (DRE) em cada organização/índice
+politica: LRU
+
+metodos:
+  heap:           {org: heap}
+  bplus_DRE:      {org: bplus, campo: DRE, unique: true}
+  hash_DRE:       {org: hash, campo: DRE, unique: true}
+  heap_hashidx:   {org: heap, indices: [{campo: DRE, tipo: hash, unique: true}]}
+  heap_bplusidx:  {org: heap, indices: [{campo: DRE, tipo: bplus, unique: true}]}
+
+pontos:
+  - operacao: selecao
+    tabela: Aluno
+    predicado: {campo: DRE, op: "=", valor: $dre_meio}
+    alternativas:
+      - {metodo: heap, caminho: A1_linear}          # a) varre tudo
+      - {metodo: heap, caminho: A1_chave}           # a) para no 1º casamento
+      - {metodo: bplus_DRE, caminho: A2}            # b) B+ primária
+      - {metodo: hash_DRE, caminho: HASH_PRIM}      # b) hash primário
+      - {metodo: heap_hashidx, caminho: HASH_SEC}   # c) hash secundário
+      - {metodo: heap_bplusidx, caminho: A4}        # c) B+ secundária

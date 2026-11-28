@@ -1,0 +1,36 @@
+# Seleção por faixa (enunciado §5.2.2 e §5.2.3 opcional), seletividades 1% e 50% (§5.2 config. 2).
+# NOT UNIQUE: Aluno.CR (CR > x1 ≈ 1%; CR < x50 ≈ 50% — limiares exatos do gerador, D-M7-1).
+# UNIQUE (opcional): Aluno.DRE > v (fração exata).
+# Casos: a) sem método de acesso; b) organização primária B+ no campo; c) índice secundário B+.
+# Política: LRU (A6 relê blocos de dados em ordem aleatória: LRU retém os recentes; ver politicas_buffer).
+descricao: Seleção por faixa em campo NOT UNIQUE (CR) e UNIQUE (DRE), 1% e 50%
+politica: LRU
+
+metodos:
+  heap:            {org: heap}
+  bplus_CR:        {org: bplus, campo: CR, unique: false}
+  heap_bplusidx_CR: {org: heap, indices: [{campo: CR, tipo: bplus, unique: false}]}
+  bplus_DRE:       {org: bplus, campo: DRE, unique: true}
+  heap_bplusidx_DRE: {org: heap, indices: [{campo: DRE, tipo: bplus, unique: true}]}
+
+pontos:
+  - operacao: selecao
+    tabela: Aluno
+    alternativas:
+      seletividade:
+        - {predicado: {campo: CR, op: ">", valor: $cr_x1}}     # 1%
+        - {predicado: {campo: CR, op: "<", valor: $cr_x50}}    # 50%
+      caso:
+        - {metodo: heap, caminho: A1_linear}                  # a
+        - {metodo: bplus_CR, caminho: A5}                     # b
+        - {metodo: heap_bplusidx_CR, caminho: A6}             # c
+  - operacao: selecao
+    tabela: Aluno
+    alternativas:
+      seletividade:
+        - {predicado: {campo: DRE, op: ">", valor: "$dre_frac:0.01"}}
+        - {predicado: {campo: DRE, op: ">", valor: "$dre_frac:0.5"}}
+      caso:
+        - {metodo: heap, caminho: A1_linear}
+        - {metodo: bplus_DRE, caminho: A5}
+        - {metodo: heap_bplusidx_DRE, caminho: A6}

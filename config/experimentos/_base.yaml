@@ -1,0 +1,10 @@
+# Padrões do runner (M9/E14) — valem para todo config/experimentos/*.yaml que não os redefina.
+# Arquivos que começam com "_" não são experimentos. Justificativas em docs/decisoes/M9.md.
+repeticoes:
+  min: 3            # enunciado §6: no mínimo três repetições
+  max: 7
+  cv: 0.05          # para quando CV(tempo) e CV(transferências) < 5%
+comparar_sqlite: true
+manutencao:
+  frac: 0.05        # remove 5% dos registros e reinsere os mesmos 5% (conteúdo preservado)
+politica: LRU       # política-base (todas as áreas); cada experimento declara a sua

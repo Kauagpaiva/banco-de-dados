@@ -1,0 +1,23 @@
+# Ocupação de memória secundária antes/depois das cargas de manutenção (enunciado §6.1.1):
+# remove 5% dos registros e reinsere os mesmos (conteúdo final = SQLite; D-M9-4).
+# Saída extra: results/manutencao_ocupacao.csv (momentos carga / antes / depois, por estrutura).
+# Cada ponto usa uma base isolada (a manutenção altera os arquivos). Política: LRU.
+descricao: Ocupação e I/O de manutenção (remove 5% + reinsere 5%) por organização
+politica: LRU
+
+metodos:
+  heap:               {org: heap}
+  bplus_DRE:          {org: bplus, campo: DRE}
+  hash_DRE:           {org: hash, campo: DRE}
+  heap_hashCPF_bplusCR: {org: heap, indices: [{campo: CPF, tipo: hash, unique: true},
+                                              {campo: CR, tipo: bplus}]}
+  Insc_bplus_DRE:     {org: bplus, campo: DRE, unique: false}
+  Insc_hash_DRE:      {org: hash, campo: DRE, unique: false}
+
+pontos:
+  - operacao: manutencao
+    tabela: Aluno
+    variar: {metodo: [heap, bplus_DRE, hash_DRE, heap_hashCPF_bplusCR]}
+  - operacao: manutencao
+    tabela: Inscricao_Aluno_Turma
+    variar: {metodo: [Insc_bplus_DRE, Insc_hash_DRE]}
