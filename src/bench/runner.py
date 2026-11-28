@@ -11,7 +11,9 @@ Para cada **ponto** da matriz (enunciado §5–6; Silberschatz 15.2–15.5 para 
 2. aplica a política de substituição do ponto em todas as áreas do buffer;
 3. a cada repetição: `drop_all()` + `reset_stats()` (cold start), executa, consome a saída;
    repete até CV(tempo) e CV(transferências) < `cv` (mín. 3, máx. 7 — `_base.yaml`);
-4. só na 1ª repetição compara a saída com o SQLite (contagem + checksum das chaves primárias);
+   antes delas, 1 execução de aquecimento não gravada (D-M9-5: iguala o estado físico que o
+   cold start não zera — braço do disco e free list do rascunho);
+4. só no aquecimento compara a saída com o SQLite (contagem + checksum das chaves primárias);
 5. grava 1 linha por repetição em `results/<exp>.csv` (colunas `COLUNAS`) com o custo estimado
    (`cost_model`) calculado com os parâmetros reais da base (br, nr, altura, cadeia de overflow…).
 
@@ -685,10 +687,13 @@ class _Execucao:
         ok: Any = ""
         tempos: list[float] = []
         transf: list[float] = []
-        for rep in range(1, self.rmax + 1):
+        # rep 0 = aquecimento (não gravado; faz a verificação SQLite): deixa o estado físico
+        # que o cold start não zera — posição do braço (D05) e free list do rascunho — igual
+        # ao de toda repetição medida, para que as contagens sejam idênticas entre reps.
+        for rep in range(0, self.rmax + 1):
             ctx.drop_all()
             ctx.reset_stats()
-            verificar = rep == 1 and self.comparar
+            verificar = rep == 0 and self.comparar
             t0 = time.perf_counter()
             it, met = plano.rodar()
             n, soma = _consumir(it, plano.chave, verificar)
@@ -696,6 +701,8 @@ class _Execucao:
             ctx.bm.assert_no_pins()
             if verificar:
                 ok = (n, soma) == _referencia(self.sqlite(cfg), plano.sql, plano.params)
+            if rep == 0:
+                continue
             met = dict(met)
             met.setdefault("tuplas_saida", n)
             selet = (round(n / plano.desc["tam_r"], 6)
