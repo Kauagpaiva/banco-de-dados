@@ -1,0 +1,26 @@
+# (Opcional) Tamanho do bloco 2048 / 4096 / 8192 B (Decisões fixadas: variação opcional).
+# Um fator por vez: varre Aluno (A1) e faz o BNL Aluno⋈Inscricao caso a. Política: LRU na seleção,
+# MRU no BNL. M fixo em páginas: com blocos maiores cabem mais tuplas em M.
+descricao: Efeito do tamanho do bloco em seleção linear e BNL
+M: 10
+por_perfil:
+  medio:
+    M: 32
+
+metodos:
+  heap: {org: heap}
+
+pontos:
+  - operacao: selecao
+    tabela: Aluno
+    metodo: heap
+    caminho: A1_linear
+    predicado: {campo: CR, op: ">", valor: $cr_x1}
+    variar: {overrides.disco.block_size: [2048, 4096, 8192]}
+  - operacao: juncao
+    algoritmo: bnl
+    politica: MRU
+    caso: a
+    r: {tabela: Aluno, campo: DRE, metodo: heap}
+    s: {tabela: Inscricao_Aluno_Turma, campo: DRE, metodo: heap}
+    variar: {overrides.disco.block_size: [2048, 4096, 8192]}

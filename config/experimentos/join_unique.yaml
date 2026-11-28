@@ -1,0 +1,41 @@
+# Equijoin em campo UNIQUE que não dita a organização primária (enunciado §5.1.2, opcional):
+# Aluno.CPF = Detalhes_do_Aluno.CPF (1:1). Organizações primárias fixas fora do campo da junção:
+# Aluno B+(DRE), Detalhes heap. Casos (só índices secundários fazem sentido aqui):
+#   a) nenhum índice em CPF   d') hash sec.(CPF) só em Aluno   e) hash sec.(CPF) em ambos
+# INL com interna = a tabela indexada. Política: MRU no BNL, LRU nos demais (ver join_natural).
+descricao: Equijoin UNIQUE (CPF) Aluno x Detalhes
+M: 10
+por_perfil:
+  medio:
+    M: 32
+  completo:
+    M: 128
+    overrides:
+      buffer.areas: {catalogo: 8, indice: 64, dados: 56, trabalho: 128}
+
+metodos:
+  Aluno_bplus:         {org: bplus, campo: DRE}
+  Aluno_bplus_hashCPF: {org: bplus, campo: DRE, indices: [{campo: CPF, tipo: hash, unique: true}]}
+  Det_heap:            {org: heap}
+  Det_hashCPF:         {org: heap, indices: [{campo: CPF, tipo: hash, unique: true}]}
+
+pontos:
+  - operacao: juncao
+    r: {tabela: Detalhes_do_Aluno, campo: CPF}
+    s: {tabela: Aluno, campo: CPF}
+    alternativas:
+      caso:
+        - {caso: a, r: {metodo: Det_heap},    s: {metodo: Aluno_bplus}}
+        - {caso: d, r: {metodo: Det_heap},    s: {metodo: Aluno_bplus_hashCPF}}
+        - {caso: e, r: {metodo: Det_hashCPF}, s: {metodo: Aluno_bplus_hashCPF}}
+      algoritmo:
+        - {algoritmo: bnl, politica: MRU}
+        - {algoritmo: smj}
+        - {algoritmo: hash}
+  - operacao: juncao
+    algoritmo: inl
+    r: {tabela: Detalhes_do_Aluno, campo: CPF}
+    s: {tabela: Aluno, campo: CPF}
+    alternativas:
+      - {caso: d, r: {metodo: Det_heap},    s: {metodo: Aluno_bplus_hashCPF}}
+      - {caso: e, r: {metodo: Det_hashCPF}, s: {metodo: Aluno_bplus_hashCPF}}
