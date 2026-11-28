@@ -1,0 +1,10 @@
+# external_sort — transferências medidas × livro (b=68 blocos; fórmula b·(2⌈log_{M-1}(b/M)⌉+1)+b)
+# 28/11/2026 · FakeBufferManager (LRU), buffer frio, área 'trabalho' = M
+
+== raw-E11 (código bruto da IA)
+M=3 b=68 medido=1359 esperado(livro)=816
+M=5 b=68 medido=646 esperado(livro)=408
+
+== HEAD (refatorado)
+M=3 b=68 medido=798 esperado(livro)=816
+M=5 b=68 medido=418 esperado(livro)=408
