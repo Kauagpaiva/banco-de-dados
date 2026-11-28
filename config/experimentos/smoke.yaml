@@ -1,0 +1,51 @@
+# Smoke test do runner (E14): matriz mínima em volumes reduzidos, só com estruturas da Fase 1
+# (heap, B+ e hash primários, HashIndex). Roda em segundos; resultado em results/smoke.csv.
+descricao: Smoke test do runner (seleção, 4 junções, manutenção)
+politica: LRU
+M: 6
+repeticoes: {min: 3, max: 4, cv: 0.05}
+overrides:
+  perfis.teste: {Curso: 4, Disciplina: 12, Turma: 20, Aluno: 80, Detalhes_do_Aluno: 80,
+                 Inscricao_Aluno_Turma: 160}
+
+metodos:
+  heap:         {org: heap}
+  bplus_DRE:    {org: bplus, campo: DRE}
+  hash_DRE:     {org: hash, campo: DRE}
+  heap_hashCPF: {org: heap, indices: [{campo: CPF, tipo: hash, unique: true}]}
+  Curso_bplus:  {org: bplus, campo: codigo}
+
+pontos:
+  - operacao: selecao
+    tabela: Aluno
+    predicado: {campo: DRE, op: "=", valor: $dre_meio}
+    alternativas:
+      - {metodo: heap, caminho: A1_chave}
+      - {metodo: bplus_DRE, caminho: A2}
+      - {metodo: hash_DRE, caminho: HASH_PRIM}
+  - operacao: selecao
+    tabela: Aluno
+    metodo: heap_hashCPF
+    caminho: HASH_SEC
+    predicado: {campo: CPF, op: "=", valor: $cpf_meio}
+  - operacao: selecao
+    tabela: Aluno
+    alternativas:
+      - {metodo: heap, caminho: A1_linear, predicado: {campo: CR, op: ">", valor: $cr_x1}}
+      - {metodo: bplus_DRE, caminho: A5, predicado: {campo: DRE, op: ">", valor: "$dre_frac:0.5"}}
+  - operacao: juncao
+    caso: a
+    r: {tabela: Curso, campo: codigo, metodo: heap}
+    s: {tabela: Aluno, campo: cod_curso, metodo: heap}
+    alternativas:
+      - {algoritmo: bnl, politica: MRU}
+      - {algoritmo: smj}
+      - {algoritmo: hash}
+  - operacao: juncao
+    caso: b
+    algoritmo: inl
+    r: {tabela: Aluno, campo: cod_curso, metodo: heap}
+    s: {tabela: Curso, campo: codigo, metodo: Curso_bplus}
+  - operacao: manutencao
+    tabela: Aluno
+    variar: {metodo: [heap, bplus_DRE, hash_DRE, heap_hashCPF]}

@@ -556,7 +556,8 @@ def _localizar(org, rec: Mapping) -> Any:
 
 
 def manutencao(ctx, am: AccessMethod, backend: Backend, frac: float) -> tuple[dict, int]:
-    """Remove ≈ `frac` dos registros (1 a cada ⌈1/frac⌉ na ordem física) e reinsere os mesmos.
+    """Remove ≈ `frac` dos registros (1 a cada ⌈1/frac⌉ na ordem física), reinsere os mesmos e
+    grava as páginas alteradas (`flush_all`: entram em `gravacoes`).
     A escolha das vítimas (scan) não é medida; remoções + inserções são. Devolve (métricas, n)."""
     passo = max(1, round(1 / frac))
     alvos = [(rid, rec) for i, (rid, rec) in enumerate(am.tabela.scan()) if i % passo == 0]
@@ -568,6 +569,7 @@ def manutencao(ctx, am: AccessMethod, backend: Backend, frac: float) -> tuple[di
             backend.remove(am, rid if heap else _localizar(am.tabela, rec))
         for _, rec in alvos:
             backend.insere(am, rec)
+        ctx.bm.flush_all()      # as gravações das páginas alteradas fazem parte do custo
     met = med.metricas
     met["tuplas_saida"] = len(alvos)
     return met, len(alvos)

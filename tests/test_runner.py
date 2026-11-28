@@ -182,6 +182,7 @@ def test_estimado_e_seletividade(resultado):
     for l in linhas:
         if l["operacao"] == "manutencao":
             assert l["est_transf"] == "" and float(l["seletividade"]) == pytest.approx(0.05)
+            assert int(l["gravacoes"]) > 0 and int(l["tuplas_saida"]) == VOLUMES["Aluno"] // 20
             continue
         assert float(l["est_transf"]) > 0 and l["dif_rel"] != ""
     sel = {l["caminho"]: l for l in linhas if l["operacao"] == "selecao" and l["rep"] == "1"}
